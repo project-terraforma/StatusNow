@@ -8,7 +8,7 @@ from xgboost import XGBClassifier
 
 # Data Loading
 def load_data():
-    return pd.read_parquet("processed_for_ml.parquet")
+    return pd.read_parquet("data/processed_for_ml.parquet")
 
 # Metric Definitions
 # We want to specifically focus on the MINORITY class (0 - Closed) because usually "Open" is dominant.

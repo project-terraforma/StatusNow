@@ -5,7 +5,7 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.max_colwidth', None)
 
 def inspect():
-    parquet_file = "Project C Samples.parquet"
+    parquet_file = "data/Season 2 Samples 3k Project Updated.parquet"
     con = duckdb.connect()
     
     # 1. Check if one row is a single place (Unique ID check)

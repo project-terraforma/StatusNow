@@ -2,7 +2,7 @@ import duckdb
 import os
 
 def main():
-    parquet_file = "Project C Samples.parquet"
+    parquet_file = "data/Season 2 Samples 3k Project Updated.parquet"
     
     if not os.path.exists(parquet_file):
         print(f"Error: File '{parquet_file}' not found.")
