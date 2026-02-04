@@ -49,6 +49,33 @@ def process_data():
             return [str(item.get('dataset', '')).lower() for item in data if isinstance(item, dict)]
         return []
 
+    # Recency Logic
+    from datetime import datetime
+    CURRENT_DATE = datetime(2026, 2, 4) # Fixed reference date based on active timeline
+
+    def get_source_recency_stats(x):
+        data = parse_json(x)
+        if not isinstance(data, list) or len(data) == 0:
+            return pd.Series([9999, 9999, 9999]) # Default old values if empty
+
+        dates = []
+        for item in data:
+            if isinstance(item, dict):
+                u_time = item.get('update_time')
+                if u_time:
+                    try:
+                        # Parse ISO format: 2025-01-06T00:00:00.000Z
+                        dt = datetime.strptime(u_time.split('T')[0], "%Y-%m-%d")
+                        days_diff = (CURRENT_DATE - dt).days
+                        dates.append(days_diff)
+                    except:
+                        pass
+        
+        if not dates:
+            return pd.Series([9999, 9999, 9999])
+        
+        return pd.Series([min(dates), max(dates), sum(dates)/len(dates)])
+
     # Feature: Number of Sources
     df['num_sources'] = df['sources'].apply(get_len)
     
@@ -58,6 +85,10 @@ def process_data():
     
     # Feature: Source Count > 1 (Cross-verification)
     df['is_cross_verified'] = df['num_sources'].apply(lambda x: 1 if x > 1 else 0)
+    
+    # NEW: Recency Features
+    print("Calculating source recency...")
+    df[['days_since_latest_update', 'days_since_oldest_update', 'avg_days_since_update']] = df['sources'].apply(get_source_recency_stats)
 
     # ---------------------------
     # 2. Conflicting Websites
@@ -90,6 +121,18 @@ def process_data():
     df['has_social'] = df['socials'].apply(is_present)
     df['has_phone'] = df['phones'].apply(is_present)
     
+    # granular social checks
+    def check_social_platform(x, platform):
+        data = parse_json(x)
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, str) and platform in item.lower():
+                    return 1
+        return 0
+
+    df['has_facebook'] = df['socials'].apply(lambda x: check_social_platform(x, 'facebook.com'))
+    df['has_instagram'] = df['socials'].apply(lambda x: check_social_platform(x, 'instagram.com'))
+
     # We found social length might be inversely correlated for closed, let's keep length
     df['len_socials'] = df['socials'].apply(get_len)
     
@@ -152,6 +195,8 @@ def process_data():
         'has_website', 'has_social', 'has_phone', 'contact_depth', 'is_brand', 
         'confidence', 
         'num_sources', 'source_has_msft', 'is_cross_verified', # Source signals
+        'days_since_latest_update', 'avg_days_since_update', # Recency
+        'has_facebook', 'has_instagram', # Specific Socials
         'has_conflicting_websites', # User Idea
         'len_socials', # Granular social info
         'cat_is_unknown' # Category signal

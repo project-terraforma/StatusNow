@@ -11,7 +11,7 @@ This project aims to classify whether a place (POI) is Open or Closed based on i
 
 - **`read_data.py`**: Reads and displays the raw parquet data schema and first few rows.
 - **`inspect_data.py`**: Performs deep inspection of the data, checking for valid IDs, class balance, and feature correlations.
-- **`process_data.py`**: The main ETL script. It reads the raw data, parses JSON fields, creates features (Confidence, One-Hot Categories, Contact Depth), and saves the result to `data/processed_for_ml.parquet`.
+- **`process_data.py`**: The main ETL script. It reads the raw data, parses JSON fields, creates features (Confidence, One-Hot Categories, Contact Depth, Recency, Social Platforms), and saves the result to `data/processed_for_ml.parquet`.
 - **`experiment_runner.py`**: Runs 5-Fold Cross Validation on multiple models (Balanced Random Forest, XGBoost) and reports metrics.
 
 ## Setup
@@ -43,17 +43,18 @@ pip install duckdb pandas numpy pyarrow scikit-learn imbalanced-learn xgboost
 
 ## Model Experiments & Findings
 
-We compared **Balanced Random Forest** vs **XGBoost** to predict if a place is closed based on static metadata (phone presence, website presence, Overture confidence score).
+We compared **Balanced Random Forest** vs **XGBoost** to predict if a place is closed based on static metadata, including new **Recency** and **Social Platform** features.
 
 ### Results (Balanced Accuracy)
 
-| Model           | Balanced Acc | Performance Analysis                                                              |
-| :-------------- | :----------- | :-------------------------------------------------------------------------------- |
-| **Balanced RF** | **65.03%**   | **Best**. Powered by Source Signals (Msft/Meta presence) and category details.    |
-| **XGBoost**     | 64.80%       | **Very Close**. Effectively tied with Random Forest on the optimized feature set. |
+| Model           | Balanced Acc | Performance Analysis                                                                                                          |
+| :-------------- | :----------- | :---------------------------------------------------------------------------------------------------------------------------- |
+| **XGBoost**     | **65.38%**   | **New Best**. Gradient boosting successfully leveraged the continuous "Recency" (days since update) signals to nudge past RF. |
+| **Balanced RF** | 64.54%       | **Stable**. Performs reliably but struggles to capture the subtle signal from update dates as effectively as XGBoost.         |
 
 ### Key Insights
 
-1.  **The "Source" Signal**: The strongest predictor found was the **Number of Sources**. Open places average **1.9** sources (e.g., listed in both Meta & Microsoft datasets), while Closed places average **1.35**.
-2.  **Dataset Balance**: The "Season 2" dataset (60% Open) allowed standard models to perform much better than on the previous imbalanced data.
-3.  **Ceiling**: Despite deep feature engineering (parsing JSON sources, specific categories), accuracy tops out at **65%**. This suggests that 35% of closed places look _identically_ valid (have phones, websites, recent updates) as open places in the static data.
+1.  **Recency Matters**: Adding "Days Since Last Update" was the key to breaking the 65% barrier. Freshness is a valid proxy for openness.
+2.  **Source Signal**: The **Number of Sources** remains the dominant predictor (Open places = ~1.9 sources, Closed = ~1.35).
+3.  **Social Nuance**: Distinguishing between generic social links and specific platforms (Facebook vs Instagram) provided marginal gains.
+4.  **Ceiling**: We are likely nearing the mathematical limit of this static dataset (~65.4%). Further gains would require dynamic probing (live HTTP requests).
