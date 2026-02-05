@@ -4,13 +4,32 @@ import numpy as np
 import json
 
 def process_data():
-    parquet_file = "data/Season 2 Samples 3k Project Updated.parquet"
+    import os
+    # Prefer the enriched dataset if available
+    mobility_file = "data/processed_with_mobility.parquet"
+    raw_file = "data/Season 2 Samples 3k Project Updated.parquet"
+    
+    if os.path.exists(mobility_file):
+        print(f"Loading Enriched Data '{mobility_file}'...")
+        parquet_file = mobility_file
+        has_mobility = True
+    else:
+        print(f"Loading Raw Data '{raw_file}' (Mobility enrichment missing)...")
+        parquet_file = raw_file
+        has_mobility = False
+        
     output_file = "data/processed_for_ml.parquet"
     
-    print(f"Loading '{parquet_file}'...")
+    print(f"Reading '{parquet_file}'...")
     con = duckdb.connect()
-    # Read strict to get strings
     df = con.execute(f"SELECT * FROM read_parquet('{parquet_file}')").df()
+
+    # Ensure mobility cols exist if missing
+    if 'mobility_score' not in df.columns:
+        df['mobility_score'] = 0.0
+    if 'is_ghost_candidate' not in df.columns:
+        df['is_ghost_candidate'] = 0
+
 
     print("Engineering features...")
     
@@ -40,7 +59,7 @@ def process_data():
         return 1 if get_len(x) > 0 else 0
 
     # ---------------------------
-    # 1. Source Signal (The new heavy hitter)
+    # 1. Source Signal 
     # ---------------------------
     def get_source_data(x):
         data = parse_json(x)
@@ -86,7 +105,7 @@ def process_data():
     # Feature: Source Count > 1 (Cross-verification)
     df['is_cross_verified'] = df['num_sources'].apply(lambda x: 1 if x > 1 else 0)
     
-    # NEW: Recency Features
+    # Recency Features
     print("Calculating source recency...")
     df[['days_since_latest_update', 'days_since_oldest_update', 'avg_days_since_update']] = df['sources'].apply(get_source_recency_stats)
 
@@ -199,7 +218,8 @@ def process_data():
         'has_facebook', 'has_instagram', # Specific Socials
         'has_conflicting_websites', # User Idea
         'len_socials', # Granular social info
-        'cat_is_unknown' # Category signal
+        'cat_is_unknown', # Category signal
+        'mobility_score', 'is_ghost_candidate' # Fused Mobility Signals
     ] + list(dummies.columns)
     
     final_df = df_ml[feature_cols + [target_col]].copy()
