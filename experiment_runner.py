@@ -30,26 +30,44 @@ def run_experiments():
     print(f"Data Loaded. X: {X.shape}, y: {y.shape}")
     print(f"Target Distribution: {y.value_counts(normalize=True).to_dict()}")
 
-    # Models Registry
+    from sklearn.ensemble import RandomForestClassifier
+    from xgboost import XGBClassifier
+    from imblearn.ensemble import BalancedRandomForestClassifier
+    from catboost import CatBoostClassifier
+    from imblearn.ensemble import EasyEnsembleClassifier
+    from tabpfn import TabPFNClassifier # Small data transformer
+    
+    # 2. Define Models
     models = {
         "Balanced RF": BalancedRandomForestClassifier(
-            n_estimators=100, 
-            sampling_strategy="all", 
-            replacement=True,
-            bootstrap=True,
-            random_state=42,
+            n_estimators=200, 
+            class_weight='balanced', 
+            random_state=42, 
             n_jobs=-1
         ),
         "XGBoost": XGBClassifier(
             n_estimators=100,
             learning_rate=0.1,
             max_depth=5,
-           
             scale_pos_weight=1, 
             eval_metric='auc',
             random_state=42,
+            use_label_encoder=False,
             n_jobs=-1
-            
+        ),
+        "CatBoost": CatBoostClassifier(
+            iterations=500,
+            learning_rate=0.05,
+            depth=6,
+            verbose=0,
+            auto_class_weights='Balanced',
+            random_state=42,
+            allow_writing_files=False
+        ),
+        "EasyEnsemble": EasyEnsembleClassifier(
+            n_estimators=20, # 20 balanced bags
+            random_state=42,
+            n_jobs=-1
         )
     }
 

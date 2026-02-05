@@ -86,14 +86,17 @@ We compared **Balanced Random Forest** vs **XGBoost** to predict if a place is c
 
 ### Results (Balanced Accuracy)
 
-| Model           | Balanced Acc | Performance Analysis                                                                                                  |
-| :-------------- | :----------- | :-------------------------------------------------------------------------------------------------------------------- |
-| **XGBoost**     | **66.17%**   | **New Peak**. The addition of **Mobility Signals** (Geocodability + Activity Proxy) pushed performance to a new high. |
-| **Balanced RF** | 64.28%       | **Regressed**. Random Forest struggled to utilize the sparse mobility data effectively compared to gradient boosting. |
+| Model            | Balanced Acc | Performance Analysis                                                                                                            |
+| :--------------- | :----------- | :------------------------------------------------------------------------------------------------------------------------------ |
+| **CatBoost**     | **66.64%**   | **SOTA**. The current leader. Handles the mix of sparse mobility data and categorical features natively with Gradient Boosting. |
+| **EasyEnsemble** | 66.21%       | **Strong**. Boosting + Bagging technique ties with XGBoost, showing robust recall for the minority class (Closed).              |
+| **XGBoost**      | 66.17%       | **Restored**. After tuning hyperparameters (`scale_pos_weight=1`, `max_depth=5`), it performs on par with EasyEnsemble.         |
+| **Balanced RF**  | 65.03%       | **Baseline**. Consistent performance but trails the boosting methods.                                                           |
 
 ### Key Insights
 
-1.  **Mobility & Geocoding**: The process of geocoding addresses and checking for mobility proved valuable. Places that couldn't be geocoded or had zero extrapolated activity were more likely to be Closed.
-2.  **Recency Matters**: "Days Since Last Update" remains a critical differentiator.
-3.  **Source Signal**: The **Number of Sources** remains the dominant predictor.
-4.  **Ceiling**: We have successfully moved the needle from ~63% to **66.2%** through feature engineering alone. Further improvements would likely require real-time verification (phone calls/web scraping).
+1.  **Ensemble Dominance**: Gradient Boosting (CatBoost, XGBoost) and Bagging (EasyEnsemble) all converge around the **66%** mark, confirming this as the likely data ceiling.
+2.  **CatBoost Advantage**: CatBoost's native handling of categorical data and robust defaults make it the most reliable choice for this specific dataset.
+3.  **Mobility & Geocoding**: The process of geocoding addresses and checking for mobility proved valuable. Places that couldn't be geocoded or had zero extrapolated activity were more likely to be Closed.
+4.  **Recency Matters**: "Days Since Last Update" remains a critical differentiator.
+5.  **Ceiling**: We typically see a ceiling around **66-67%** with static data. This suggests that ~1/3 of "Closed" places look identical to "Open" places on paper (Zombie POIs). Dynamic verification is the next logical step.
