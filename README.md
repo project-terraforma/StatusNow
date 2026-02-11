@@ -50,16 +50,40 @@ The `processed_for_ml.parquet` file contains the following engineered features u
 | `cat_is_unknown`                         | int   | 1 if the primary category is missing or 'unknown'.                                |
 | **Categories (One-Hot)**                 | bool  | Specific category flags (e.g., `cat_hotel`, `cat_restaurant`, `cat_gas_station`). |
 
-## Scripts
+## Repository Structure
 
-- **`read_data.py`**: Reads and displays the raw parquet data schema and first few rows.
-- **`inspect_data.py`**: Performs deep inspection of the data, checking for valid IDs, class balance, and feature correlations.
-- **`process_data.py`**: Main ETL script (V1). Creates delta features and saves to `data/processed_for_ml.parquet`.
-- **`process_data_v2.py`**: **V2 - ADVANCED**. Implements interaction features, category churn risk, digital congruence, and PCA. Optionally merges Project C dataset with `--merge` flag. Saves to `data/processed_for_ml_v2.parquet`.
-- **`experiment_runner.py`**: Runs 5-Fold CV on V1 features.
-- **`experiment_runner_v2.py`**: **V2 - BREAKTHROUGH**. Compares V1 vs V2 features, showing 3-5% improvement.
-- **`analyze_delta_features.py`**: Analyzes delta features' predictive power.
-- **`feature_selection.py`**: Identifies redundant/low-importance features to avoid overfitting.
+> **📖 Need help navigating? See [NAVIGATION.md](NAVIGATION.md) for a complete guide!**
+
+The repository is organized into clear categories:
+
+### Data Processing Scripts (`scripts/data_processing/`)
+
+- **`read_data.py`**: Quick data inspection - shows schema and first rows
+- **`inspect_data.py`**: Deep data quality analysis - validates IDs, checks balance, correlations
+- **`process_data.py`**: **V1 Pipeline** - Creates delta features → `data/processed_for_ml.parquet`
+- **`process_data_v2.py`**: **V2 Pipeline ⭐ RECOMMENDED** - Advanced features → `data/processed_for_ml_v2.parquet`
+  - Interaction features (recency × loss, zombie score)
+  - Category-specific churn risk
+  - Digital congruence checks
+  - PCA for dimensionality reduction
+  - Optional: `--merge` flag to combine datasets
+
+### Experiment Scripts (`scripts/experiments/`)
+
+- **`experiment_runner.py`**: V1 experiments - 5-Fold CV on delta features
+- **`experiment_runner_v2.py`**: **V2 Experiments ⭐ BREAKTHROUGH** - V1 vs V2 comparison showing 3-5% improvement
+
+### Analysis Scripts ( `scripts/analysis/`)
+
+- **`analyze_delta_features.py`**: Correlation analysis of delta features
+- **`feature_selection.py`**: Identifies redundant features, finds optimal 30-feature subset
+
+### Documentation (`docs/`)
+
+- **`recommended_features.txt`**: Optimal 30 features for reduced overfitting
+- **`summaries/BREAKTHROUGH_V2_RESULTS.md`**: V2 feature engineering summary
+- **`summaries/DELTA_FEATURES_SUMMARY.md`**: Delta features deep dive
+- **`summaries/MODEL_COMPARISON.md`**: All models compared
 
 ## Setup
 
@@ -74,24 +98,44 @@ pip install duckdb pandas numpy pyarrow scikit-learn imbalanced-learn xgboost fu
 
 ## Usage
 
-1. Inspect the raw data:
-   ```bash
-   python3 read_data.py
-   python3 inspect_data.py
-   ```
-2. Analyze Delta Features (Optional):
-   ```bash
-   # Analyze the predictive power of delta features
-   python3 analyze_delta_features.py
-   ```
-3. Generate features:
-   ```bash
-   python3 process_data.py
-   ```
-4. Run Model Experiments:
-   ```bash
-   python3 experiment_runner.py
-   ```
+### Quick Start (V2 - Recommended) ⭐
+
+```bash
+# 1. Process data with advanced features
+python scripts/data_processing/process_data_v2.py
+
+# 2. Run experiments and see the breakthrough
+python scripts/experiments/experiment_runner_v2.py
+```
+
+### Complete Workflow
+
+```bash
+# 1. Inspect raw data (optional)
+python scripts/data_processing/read_data.py
+python scripts/data_processing/inspect_data.py
+
+# 2. Analyze Delta Features (optional)
+python scripts/analysis/analyze_delta_features.py
+
+# 3. Generate V1 features
+python scripts/data_processing/process_data.py
+
+# 4. Run V1 experiments
+python scripts/experiments/experiment_runner.py
+
+# 5. Feature selection analysis (optional)
+python scripts/analysis/feature_selection.py
+
+# 6. Generate V2 features with advanced engineering ⭐
+python scripts/data_processing/process_data_v2.py
+
+# 7. Run V2 experiments and see improvement ⭐
+python scripts/experiments/experiment_runner_v2.py
+
+# 8. Optional: Merge datasets for more training data
+python scripts/data_processing/process_data_v2.py --merge
+```
 
 ## Model Experiments & Findings
 
