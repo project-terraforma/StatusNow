@@ -5,30 +5,17 @@ import json
 
 def process_data():
     import os
-    # Prefer the enriched dataset if available
-    mobility_file = "data/processed_with_mobility.parquet"
-    raw_file = "data/Season 2 Samples 3k Project Updated.parquet"
-    
-    if os.path.exists(mobility_file):
-        print(f"Loading Enriched Data '{mobility_file}'...")
-        parquet_file = mobility_file
-        has_mobility = True
-    else:
-        print(f"Loading Raw Data '{raw_file}' (Mobility enrichment missing)...")
-        parquet_file = raw_file
-        has_mobility = False
-        
+    # Use the Season 2 dataset (10/90 split) - correct for this assignment
+    parquet_file = "data/Season 2 Samples 3k Project Updated.parquet"
     output_file = "data/processed_for_ml.parquet"
     
+    if not os.path.exists(parquet_file):
+        print(f"Error: File '{parquet_file}' not found.")
+        return
+        
     print(f"Reading '{parquet_file}'...")
     con = duckdb.connect()
     df = con.execute(f"SELECT * FROM read_parquet('{parquet_file}')").df()
-
-    # Ensure mobility cols exist if missing
-    if 'mobility_score' not in df.columns:
-        df['mobility_score'] = 0.0
-    if 'is_ghost_candidate' not in df.columns:
-        df['is_ghost_candidate'] = 0
 
 
     print("Engineering features...")
@@ -205,11 +192,52 @@ def process_data():
     df_ml = pd.concat([df, dummies], axis=1)
 
     # ---------------------------
+    # 7. Delta Features (Baseline vs Current)
+    # ---------------------------
+    # These features capture CHANGE in digital presence - powerful signal for closure
+    print("Calculating delta features (baseline vs current)...")
+    
+    # Confidence Delta
+    df_ml['base_confidence'] = pd.to_numeric(df_ml['base_confidence'], errors='coerce').fillna(0)
+    df_ml['delta_confidence'] = df_ml['confidence'] - df_ml['base_confidence']
+    
+    # Digital Presence Deltas
+    base_websites_len = df_ml['base_websites'].apply(get_len)
+    current_websites_len = df_ml['websites'].apply(get_len)
+    df_ml['delta_num_websites'] = current_websites_len - base_websites_len
+    
+    base_socials_len = df_ml['base_socials'].apply(get_len)
+    current_socials_len = df_ml['socials'].apply(get_len)
+    df_ml['delta_num_socials'] = current_socials_len - base_socials_len
+    
+    base_phones_len = df_ml['base_phones'].apply(get_len)
+    current_phones_len = df_ml['phones'].apply(get_len)
+    df_ml['delta_num_phones'] = current_phones_len - base_phones_len
+    
+    # Binary loss/gain indicators (often more interpretable than raw deltas)
+    df_ml['has_lost_website'] = (df_ml['delta_num_websites'] < 0).astype(int)
+    df_ml['has_gained_website'] = (df_ml['delta_num_websites'] > 0).astype(int)
+    df_ml['has_lost_social'] = (df_ml['delta_num_socials'] < 0).astype(int)
+    df_ml['has_gained_social'] = (df_ml['delta_num_socials'] > 0).astype(int)
+    df_ml['has_lost_phone'] = (df_ml['delta_num_phones'] < 0).astype(int)
+    df_ml['has_gained_phone'] = (df_ml['delta_num_phones'] > 0).astype(int)
+    
+    # Composite: Total Digital Footprint Change
+    df_ml['delta_total_contact'] = (df_ml['delta_num_websites'] + 
+                                     df_ml['delta_num_socials'] + 
+                                     df_ml['delta_num_phones'])
+    
+    # Binary: Any loss in digital presence (strong closed signal)
+    df_ml['has_any_loss'] = ((df_ml['has_lost_website'] == 1) | 
+                             (df_ml['has_lost_social'] == 1) | 
+                             (df_ml['has_lost_phone'] == 1)).astype(int)
+
+    # ---------------------------
     # 7. Final Output
     # ---------------------------
     target_col = 'label'
     
-    # Add new powerful features
+    # Add new powerful features (removed mobility, added delta features)
     feature_cols = [
         'has_website', 'has_social', 'has_phone', 'contact_depth', 'is_brand', 
         'confidence', 
@@ -219,7 +247,10 @@ def process_data():
         'has_conflicting_websites', # User Idea
         'len_socials', # Granular social info
         'cat_is_unknown', # Category signal
-        'mobility_score', 'is_ghost_candidate' # Fused Mobility Signals
+        # Delta Features (baseline vs current) - powerful change signals
+        'delta_confidence', 'delta_num_websites', 'delta_num_socials', 'delta_num_phones',
+        'has_lost_website', 'has_gained_website', 'has_lost_social', 'has_gained_social',
+        'has_lost_phone', 'has_gained_phone', 'delta_total_contact', 'has_any_loss'
     ] + list(dummies.columns)
     
     final_df = df_ml[feature_cols + [target_col]].copy()

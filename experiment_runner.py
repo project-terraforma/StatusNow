@@ -31,6 +31,7 @@ def run_experiments():
     print(f"Target Distribution: {y.value_counts(normalize=True).to_dict()}")
 
     from sklearn.ensemble import RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
     from xgboost import XGBClassifier
     from imblearn.ensemble import BalancedRandomForestClassifier
     from catboost import CatBoostClassifier
@@ -39,6 +40,15 @@ def run_experiments():
     
     # 2. Define Models
     models = {
+        "Logistic Regression": LogisticRegression(
+            penalty='l2',  # L2 regularization
+            C=1.0,  # Inverse regularization strength
+            class_weight='balanced',  # Handle class imbalance
+            solver='lbfgs',  # Effective solver for L2
+            max_iter=1000,
+            random_state=42,
+            n_jobs=-1
+        ),
         "Balanced RF": BalancedRandomForestClassifier(
             n_estimators=200, 
             class_weight='balanced', 

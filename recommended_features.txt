@@ -1,0 +1,33 @@
+# Recommended Feature Set (30 features)
+# Balanced Accuracy: 0.6782
+
+avg_days_since_update
+delta_confidence
+days_since_latest_update
+confidence
+num_sources
+delta_num_socials
+delta_total_contact
+is_brand
+cat_other
+source_has_msft
+has_gained_social
+is_cross_verified
+has_lost_social
+has_any_loss
+cat_hospital
+cat_bank_credit_union
+cat_gas_station
+cat_pharmacy
+cat_is_unknown
+cat_restaurant
+cat_atms
+has_website
+has_facebook
+delta_num_websites
+has_social
+cat_coffee_shop
+cat_dentist
+cat_bar
+len_socials
+contact_depth
