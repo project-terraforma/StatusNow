@@ -10,38 +10,28 @@ StatusNow/
 ├── LICENSE                            # Apache 2.0 License
 │
 ├── data/                              # Dataset files
-│   ├── Season 2 Samples 3k Project Updated.parquet  # Primary dataset (3,000 rows)
-│   ├── Project C Samples.parquet                    # Alternative dataset (3,425 rows)
-│   ├── processed_for_ml.parquet                     # V1 features (48 features)
-│   └── processed_for_ml_v2.parquet                  # V2 features (44 features) ⭐
+│   ├── combined_truth_dataset.parquet # V3 Gold Standard (12k rows) ⭐
+│   ├── processed_for_ml_testing.parquet # Ready-to-use V3 features
+│   └── Season 2 Samples...parquet     # Legacy Season 2 data
 │
 ├── scripts/                           # All Python scripts organized by function
 │   │
 │   ├── data_processing/              # Data loading and feature engineering
-│   │   ├── read_data.py              # Quick data inspection tool
-│   │   ├── inspect_data.py           # Deep data quality analysis
-│   │   ├── process_data.py           # V1: Delta features pipeline
-│   │   └── process_data_v2.py        # V2: Advanced features (RECOMMENDED) ⭐
+│   │   ├── fetch_overture_data.py    # Step 1: Download Overture slices (DuckDB)
+│   │   ├── build_truth_dataset.py    # Step 2: Construct Ground Truth (Logic)
+│   │   └── process_data_v3.py        # Step 3: V3 Feature Engineering ⭐
 │   │
 │   ├── experiments/                   # Model training and evaluation
-│   │   ├── experiment_runner.py      # V1: 5-fold CV on baseline features
-│   │   └── experiment_runner_v2.py   # V2: Comparison + breakthrough results ⭐
+│   │   └── experiment_runner_v3.py   # Step 4: V3 Model Training & Eval ⭐
 │   │
-│   ├── analysis/                      # Feature analysis and selection
-│   │   ├── analyze_delta_features.py # Delta feature correlation analysis
-│   │   └── feature_selection.py      # Redundancy detection & optimization
-│   │
-│   └── archived/                      # Deprecated scripts (kept for reference)
-│       ├── enrich_with_fused.py      # Old: Mobility data enrichment
-│       ├── fetch_geo_from_s3.py      # Old: S3 geocoding utilities
-│       └── debug_fetch_geo.py        # Old: Debug tool
+│   └── archived/                      # Deprecated scripts (V1/V2)
+│       ├── process_data_v2.py
+│       ├── experiment_runner_v2.py
+│       └── ...
 │
 └── docs/                              # Documentation and analysis summaries
-    ├── recommended_features.txt       # Optimal 30-feature subset
-    └── summaries/                     # Detailed analysis documents
-        ├── BREAKTHROUGH_V2_RESULTS.md # V2 advanced features summary ⭐
-        ├── DELTA_FEATURES_SUMMARY.md  # V1 delta features analysis
-        └── MODEL_COMPARISON.md        # Model performance comparison
+    ├── recommended_features.txt       # Optimal features list
+    └── summaries/                     # Historical analysis documents
 ```
 
 ## 🚀 Quick Start for Reviewers
@@ -50,106 +40,52 @@ StatusNow/
 
 - Read **[README.md](../README.md)** - Comprehensive overview with results
 - Focus on:
-  - Data section (what we're working with)
-  - V2 Breakthrough results table (70.65% balanced accuracy!)
-  - Journey summary (baseline → breakthrough)
+  - **V3 Breakthrough**: 92.87% Accuracy on Overture Truth Dataset.
+  - **Process**: How we built the ground truth from Overture Maps.
 
-### 2. **See the Breakthrough** (2 minutes)
-
-- Check **[docs/summaries/BREAKTHROUGH_V2_RESULTS.md](summaries/BREAKTHROUGH_V2_RESULTS.md)**
-- Shows V1 vs V2 comparison and new feature explanations
-
-### 3. **Run the Code** (10 minutes)
+### 2. **Run the Code** (10 minutes)
 
 ```bash
 # Setup (one-time)
 python -m venv .venv
 source .venv/bin/activate
-pip install duckdb pandas numpy scikit-learn imbalanced-learn xgboost catboost pyarrow
+pip install duckdb pandas numpy scikit-learn imbalanced-learn xgboost catboost pyarrow fused geopandas shapely requests tqdm
 
-# Generate V2 features (RECOMMENDED)
-python scripts/data_processing/process_data_v2.py
-
-# Run V2 experiments and see the breakthrough
-python scripts/experiments/experiment_runner_v2.py
+# Run V3 experiments (using included processed data)
+python scripts/experiments/experiment_runner_v3.py -i data/processed_for_ml_testing.parquet
 ```
 
-### 4. **Explore Advanced Features** (5 minutes)
+### 3. **Explore Key Logic** (10 minutes)
 
-- Open **[scripts/data_processing/process_data_v2.py](../scripts/data_processing/process_data_v2.py)**
-- See sections:
-  - Interaction Features (lines ~185-195)
-  - Category Churn Risk (lines ~200-215)
-  - Digital Congruence (lines ~220-240)
-  - PCA Implementation (lines ~245-255)
+- **Feature Engineering**: Open **[scripts/data_processing/process_data_v3.py](../scripts/data_processing/process_data_v3.py)**
+  - See `process_data_v3` function for Recency Bins and Brand Interactions.
+- **Ground Truth Logic**: Open **[scripts/data_processing/build_truth_dataset.py](../scripts/data_processing/build_truth_dataset.py)**
+  - See how we define "Closed" using Overture's `operating_status` and ID churn.
 
 ## 📊 Key Results at a Glance
 
-| Metric                | V1 (Delta Features) | V2 (Advanced Features) | Improvement       |
-| --------------------- | ------------------- | ---------------------- | ----------------- |
-| **Balanced Accuracy** | 67.31%              | **70.65%**             | **+4.97%**        |
-| **Features**          | 48 features         | 44 features            | Fewer & better!   |
-| **Best Model**        | CatBoost            | CatBoost               | Consistent winner |
+| Metric                | V2 (Legacy)   | V3 (Current Best) | Improvement      |
+| --------------------- | ------------- | ----------------- | ---------------- |
+| **Balanced Accuracy** | 70.65%        | **92.87%**        | **+22.22%** 🚀   |
+| **Dataset**           | Season 2 (3k) | Overture (12k)    | Larger & Cleaner |
 
-## 🎯 What Makes V2 Special?
+## 🎯 What Makes V3 Special?
 
-1. **Interaction Features**: Captures _when_ changes happened (recent loss >> old loss)
-2. **Category Risk**: Gas stations ≠ Boutiques (industry-specific signals)
-3. **PCA**: Removed redundancy (98.68% variance with 1 component vs 2 features)
-4. **Digital Congruence**: Website/social consistency checks
-
-## 📖 Documentation Index
-
-### For Quick Understanding
-
-- **[README.md](../README.md)** - Start here, complete overview
-- **[docs/summaries/BREAKTHROUGH_V2_RESULTS.md](summaries/BREAKTHROUGH_V2_RESULTS.md)** - What changed in V2
-
-### For Deep Dive
-
-- **[docs/summaries/DELTA_FEATURES_SUMMARY.md](summaries/DELTA_FEATURES_SUMMARY.md)** - How delta features work
-- **[docs/summaries/MODEL_COMPARISON.md](summaries/MODEL_COMPARISON.md)** - All 5 models compared
-- **[docs/recommended_features.txt](recommended_features.txt)** - Optimal 30 features list
-
-### For Implementation
-
-- **[scripts/data_processing/process_data_v2.py](../scripts/data_processing/process_data_v2.py)** - V2 feature engineering
-- **[scripts/experiments/experiment_runner_v2.py](../scripts/experiments/experiment_runner_v2.py)** - V2 training pipeline
-- **[scripts/analysis/feature_selection.py](../scripts/analysis/feature_selection.py)** - Feature optimization analysis
+1.  **Overture Truth Dataset**: Validated on 12,000 real-world samples.
+2.  **Brand Awareness**: Explicitly models that Brands (97% acc) behave differently from Small Businesses.
+3.  **Non-Linear Recency**: Uses "Staleness Bins" instead of just raw days.
+4.  **Delta Features**: Captures the _change_ in digital footprint over time.
 
 ## 🔄 Workflow
 
 ```
-1. Raw Data (Season 2 Samples)
+1. Fetch Overture Data (fetch_overture_data.py)
          ↓
-2. Feature Engineering (process_data_v2.py)
+2. Build Truth Dataset (build_truth_dataset.py)
          ↓
-3. Feature Selection (feature_selection.py) [optional]
+3. Feature Engineering (process_data_v3.py)
          ↓
-4. Model Training (experiment_runner_v2.py)
+4. Model Training (experiment_runner_v3.py)
          ↓
-5. Breakthrough: 70.65% Balanced Accuracy! 🎯
+5. Result: 93% Accuracy! 🎯
 ```
-
-## ⚡ Optional: Scale to 6,400 Samples
-
-Want even better results? Merge both datasets:
-
-```bash
-python scripts/data_processing/process_data_v2.py --merge
-python scripts/experiments/experiment_runner_v2.py
-```
-
-This combines Season 2 (3,000) + Project C (3,425) for ~6,400 total samples.
-
-## 🏆 Recommended Review Order
-
-1. ✅ **README.md** (10 min) - Big picture
-2. ✅ **BREAKTHROUGH_V2_RESULTS.md** (5 min) - What's new
-3. ✅ **Run experiment_runner_v2.py** (5 min) - See it work
-4. ✅ **Read process_data_v2.py** (10 min) - Understand features
-5. ✅ **Explore other docs** (optional) - Go deeper
-
----
-
-**Questions?** Check the [README.md](../README.md) or review the inline comments in the scripts!
