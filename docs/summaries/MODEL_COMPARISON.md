@@ -1,36 +1,34 @@
-# Model Comparison Results (with Delta Features)
+# Model Comparison Results (V3 Update)
 
 ## Full Results Table
 
-| Model            | Time (s) | ROC AUC    | F1 Macro   | Precision (Closed) | Recall (Closed) | Balanced Acc |
-| ---------------- | -------- | ---------- | ---------- | ------------------ | --------------- | ------------ |
-| **CatBoost** ⭐  | 1.83     | 0.7559     | **0.6645** | 0.5726             | 0.6834          | **0.6731**   |
-| **XGBoost**      | 1.02     | **0.7601** | 0.6629     | **0.6720**         | 0.4702          | 0.6599       |
-| **Logistic Reg** | 1.42     | 0.7323     | 0.6502     | 0.5903             | **0.7221**      | 0.6659       |
-| Balanced RF      | 1.92     | 0.7382     | 0.6366     | 0.5315             | 0.7380          | 0.6548       |
-| EasyEnsemble     | 2.74     | 0.7181     | 0.6384     | 0.5423             | 0.6868          | 0.6502       |
+| Model                         | Dataset              | ROC AUC    | Precision (Closed) | Recall (Closed) | Balanced Acc |
+| :---------------------------- | :------------------- | :--------- | :----------------- | :-------------- | :----------- |
+| **V3 CatBoost (Combined)** 🏆 | **NYC + SF (18.6k)** | **0.9937** | 0.8476             | **0.9643**      | **0.9519**   |
+| V3 CatBoost (NYC)             | Overture NYC (12k)   | 0.9874     | **0.8732**         | 0.9303          | 0.9287       |
+| V3 CatBoost (SF)              | Overture SF (9.6k)   | 0.9755     | 0.6640             | 0.9395          | 0.9139       |
+| V2 Baseline (CatBoost)        | Season 2 (3k)        | 0.7559     | 0.5726             | 0.6834          | 0.6731       |
+| V1 Baseline (Logistic)        | Season 2 (3k)        | 0.7323     | 0.5903             | 0.7221          | 0.6659       |
+
+_Note: V3 improvements are driven by the new Overture Ground Truth dataset and advanced feature engineering (Brand-Awareness, Recency Decay)._
 
 ## Model Rankings
 
-### 🥇 Best Overall: **CatBoost**
+### 🥇 Best Overall: **V3 CatBoost (Combined)**
 
-- **Balanced Accuracy**: 0.6731 (1st)
-- **F1 Macro**: 0.6645 (1st)
-- **ROC AUC**: 0.7559 (2nd)
-- Best all-around performance with good balance between precision and recall
+- **Balanced Accuracy**: **95.19%** (New SOTA)
+- **Recall (Closed)**: **96.43%** - Captures almost all closed places.
+- **Robustness**: Trained on diverse data from two major cities.
 
-### 🥈 Runner-up: **XGBoost**
+### 🥈 Runner-up: **V3 CatBoost (NYC)**
 
-- **ROC AUC**: 0.7601 (1st)
-- **Precision (Closed)**: 0.6720 (1st)
-- **Balanced Accuracy**: 0.6599 (3rd)
-- Highest discrimination ability, but lower recall for closed places
+- **Balanced Accuracy**: 92.87%
+- **Precision**: 87.3% - Higher precision than Combined, likely due to cleaner initial labeling in NYC.
 
-### 🥉 Baseline: **Logistic Regression**
+### 🥉 Baseline: **V2 CatBoost**
 
-- **Balanced Accuracy**: 0.6659 (2nd)
-- **Recall (Closed)**: 0.7221 (1st among non-RF models)
-- Fast and interpretable with competitive performance!
+- **Balanced Accuracy**: 67.31%
+- Served as the initial proof-of-concept but limited by small dataset size (3k) and noisy labels.
 
 ## Key Insights
 
