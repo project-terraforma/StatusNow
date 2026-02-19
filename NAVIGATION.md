@@ -17,12 +17,13 @@ StatusNow/
 ├── scripts/                           # All Python scripts organized by function
 │   │
 │   ├── data_processing/              # Data loading and feature engineering
-│   │   ├── fetch_overture_data.py    # Step 1: Download Overture slices (DuckDB)
-│   │   ├── build_truth_dataset.py    # Step 2: Construct Ground Truth (Logic)
-│   │   └── process_data_v3.py        # Step 3: V3 Feature Engineering ⭐
+│   │   ├── fetch_overture_data.py    # Step 1: Download Overture slices (Supports NYC, SF)
+│   │   ├── build_truth_dataset.py    # Step 2: Construct Ground Truth (City-specific)
+│   │   ├── merge_cities.py           # Step 3: Combine city datasets ⭐
+│   │   └── process_data_v3.py        # Step 4: V3 Feature Engineering ⭐
 │   │
 │   ├── experiments/                   # Model training and evaluation
-│   │   └── experiment_runner_v3.py   # Step 4: V3 Model Training & Eval ⭐
+│   │   └── experiment_runner_v3.py   # Step 5: V3 Model Training & Eval ⭐
 │   │
 │   └── archived/                      # Deprecated scripts (V1/V2)
 │       ├── process_data_v2.py

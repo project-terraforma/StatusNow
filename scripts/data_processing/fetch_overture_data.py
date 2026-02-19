@@ -1,68 +1,80 @@
-
 import duckdb
 import os
-import sys
+import argparse
 
-# NYC BBox
-# xmin, ymin, xmax, ymax
-BBOX = (-74.05, 40.65, -73.90, 40.85)
-# Explicitly using the releases we found
-RELEASE_CURRENT = "2026-02-18.0"
-RELEASE_PREVIOUS = "2026-01-21.0"
+# Amazon S3 bucket for Overture Maps
+OVERTURE_S3_BUCKET = "s3://overturemaps-us-west-2/release"
 
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
+# Bounding Boxes
+BBOXES = {
+    "nyc": "-74.2591,40.4774,-73.7003,40.9176",
+    # Rough SF BBox: West=-122.52, South=37.70, East=-122.35, North=37.84
+    "sf": "-122.52,37.70,-122.35,37.84"
+}
 
-def fetch_places(release, output_filename):
-    print(f"Fetching data for release {release}...")
-    
-    # Overture S3 path
-    s3_path = f"s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/*"
-    
-    # SQL query with BBox filter
-    # We select specific columns to keep it lightweight but useful for "closed" logic
-    query = f"""
-        COPY (
-            SELECT 
-                id,
-                names,
-                bbox,
-                brand,
-                websites,
-                socials,
-                phones,
-                confidence,
-                categories,
-                addresses,
-                operating_status
-            FROM read_parquet('{s3_path}')
-            WHERE 
-                bbox.xmin > {BBOX[0]} AND
-                bbox.ymin > {BBOX[1]} AND
-                bbox.xmax < {BBOX[2]} AND
-                bbox.ymax < {BBOX[3]}
-        ) TO '{output_filename}' (FORMAT PARQUET);
+def fetch_overture_data(city, release_date, output_path):
     """
+    Fetches Overture Places data for a specific bounding box and release.
+    """
+    bbox_str = BBOXES.get(city)
+    if not bbox_str:
+        raise ValueError(f"Unknown city: {city}. Available: {list(BBOXES.keys())}")
     
-    print(f"Executing Query for {release} -> {output_filename}")
+    xmin, ymin, xmax, ymax = map(float, bbox_str.split(","))
     
+    print(f"Fetching data for {city.upper()} ({release_date})...")
+    print(f"BBox: {bbox_str}")
+
     con = duckdb.connect()
-    # Install/Load httpfs for S3 access
-    con.execute("INSTALL httpfs; LOAD httpfs;")
-    # Set S3 region (required for Overture)
+    
+    # Configure S3 (No credentials needed for public bucket)
+    con.execute("INSTALL httpfs;")
+    con.execute("LOAD httpfs;")
     con.execute("SET s3_region='us-west-2';")
     
+    # Construct Query
+    # Construct Query
+    query = f"""
+        SELECT 
+            id,
+            to_json(names) as names,
+            to_json(categories) as categories,
+            confidence,
+            to_json(websites) as websites,
+            to_json(socials) as socials,
+            to_json(emails) as emails,
+            to_json(phones) as phones,
+            to_json(brand) as brand,
+            to_json(addresses) as addresses,
+            geometry,
+            to_json(sources) as sources,
+            try_cast(operating_status AS VARCHAR) as operating_status 
+        FROM read_parquet('{OVERTURE_S3_BUCKET}/{release_date}/theme=places/type=place/*', filename=true, hive_partitioning=1)
+        WHERE bbox.xmin >= {xmin} AND bbox.ymin >= {ymin} AND bbox.xmax <= {xmax} AND bbox.ymax <= {ymax}
+    """
+    
+    print("Executing DuckDB query (streaming from S3)...")
     try:
-        con.execute(query)
-        print(f"✅ Application success: {output_filename}")
-        
-        # Verify count
-        count = con.execute(f"SELECT COUNT(*) FROM read_parquet('{output_filename}')").fetchone()[0]
-        print(f"   Rows fetched: {count}")
-        
+        # Execute and save to Parquet
+        con.execute(query).df().to_parquet(output_path)
+        print(f"✅ Saved to {output_path}")
     except Exception as e:
-        print(f"❌ Error fetching {release}: {e}")
+        print(f"❌ Error fetching {release_date}: {e}")
 
 if __name__ == "__main__":
-    fetch_places(RELEASE_CURRENT, os.path.join(DATA_DIR, "overture_current.parquet"))
-    fetch_places(RELEASE_PREVIOUS, os.path.join(DATA_DIR, "overture_previous.parquet"))
+    parser = argparse.ArgumentParser(description="Fetch Overture Data for a City.")
+    parser.add_argument("--city", type=str, default="nyc", choices=["nyc", "sf"], help="City to fetch (nyc or sf)")
+    args = parser.parse_args()
+
+    # Define releases
+    CURRENT_RELEASE = "2026-02-18.0"
+    PREVIOUS_RELEASE = "2026-01-21.0"
+
+    output_dir = "data/overture"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Fetch Current
+    fetch_overture_data(args.city, CURRENT_RELEASE, f"{output_dir}/{args.city}_current.parquet")
+
+    # Fetch Previous
+    fetch_overture_data(args.city, PREVIOUS_RELEASE, f"{output_dir}/{args.city}_previous.parquet")

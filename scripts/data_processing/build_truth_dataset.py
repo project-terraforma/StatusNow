@@ -1,26 +1,29 @@
-
 import duckdb
 import os
 import pandas as pd
 import numpy as np
+import argparse
+import json
 
-DATA_DIR = "data"
-# Overture Files
-OVERTURE_CURRENT = os.path.join(DATA_DIR, "overture_current.parquet")
-OVERTURE_PREVIOUS = os.path.join(DATA_DIR, "overture_previous.parquet")
-
-# Season 2 File
 SEASON2_FILE = "data/Season 2 Samples 3k Project Updated.parquet"
 
-OUTPUT_FILE = os.path.join(DATA_DIR, "combined_truth_dataset.parquet")
-
-def build_truth_dataset():
-    print("Building Truth Dataset...")
+def build_truth_dataset(city):
+    print(f"Building Truth Dataset for {city.upper()}...")
     
+    # Dynamic Paths
+    overture_dir = "data/overture"
+    current_file = os.path.join(overture_dir, f"{city}_current.parquet")
+    previous_file = os.path.join(overture_dir, f"{city}_previous.parquet")
+    output_file = f"data/combined_truth_dataset_{city}.parquet"
+
+    if not os.path.exists(current_file) or not os.path.exists(previous_file):
+        print(f"❌ Error: Missing input files for {city}.\nExpected:\n- {current_file}\n- {previous_file}\nRun 'fetch_overture_data.py --city {city}' first.")
+        return
+
     con = duckdb.connect()
     
     # --- 1. Load Overture Data ---
-    print("Loading Overture Data...")
+    print(f"Loading Overture Data from {overture_dir}...")
     
     # Logic:
     # CLOSED = (ID in Previous AND ID NOT in Current) OR (ID in Current AND operating_status = 'closed')
@@ -28,10 +31,10 @@ def build_truth_dataset():
     
     query = f"""
         WITH prev AS (
-            SELECT * FROM read_parquet('{OVERTURE_PREVIOUS}')
+            SELECT * FROM read_parquet('{previous_file}')
         ),
         curr AS (
-            SELECT * FROM read_parquet('{OVERTURE_CURRENT}')
+            SELECT * FROM read_parquet('{current_file}')
         )
         SELECT 
             -- Prioritize Current info if available, else Previous
@@ -70,17 +73,6 @@ def build_truth_dataset():
     
     df = con.execute(query).df()
     
-    # Filter to only rows that have EITHER a previous record OR are currently valid
-    # Actually, we want:
-    # - Closed (label=0): Must be in Previous (to have base stats) OR explicitly closed in Current
-    # - Open (label=1): Must be in Current
-    
-    # Drop rows that are purely new opens (no history)? User said "combine with previous", implies tracking change?
-    # But usually a "truth dataset" for closed prediction needs history.
-    # If a place is brand new in Current (prev.id is NULL), we can't calculate deltas.
-    # Let's keep them if they are Open, but maybe they aren't useful for "closed prediction" if the model relies on history.
-    # But for now, let's keep all valid Overture records in NYC area.
-    
     print(f"Total Overture Rows: {len(df)}")
     print(f"Label Dist: {df['label'].value_counts().to_dict()}")
     
@@ -105,34 +97,21 @@ def build_truth_dataset():
          open_sampled = open_df
 
     overture_final = pd.concat([closed_sampled, open_sampled]).copy()
-    overture_final['source_dataset'] = 'overture_nyc'
+    overture_final['source_dataset'] = f'overture_{city}'
     
     # --- 3. Align Columns with Season 2 ---
-    # Season 2 Cols: label, id, names, categories, confidence, websites, socials, phones, brand, addresses, base_*...
-    # We constructed most of them in SQL.
-    # Missing: sources, emails, base_sources, base_emails (Overture doesn't provide these easily in this simple query, filling with null)
-    
     for col in ['sources', 'emails', 'base_sources', 'base_emails']:
         overture_final[col] = None
         
     print(f"Overture Sampled Shape: {overture_final.shape}")
     
-    # --- 4. Merge with Season 2 ---
+    # --- 4. Merge with Season 2 (NYC Only or Always?) ---
+    # User likely wants to cross-validate on SF, but training on Season 2 + NYC is the "Base".
+    # For now, let's keep consistent: Merge Season 2 into the training/truth set if available.
     if os.path.exists(SEASON2_FILE):
         print(f"\nLoading Season 2 Data from {SEASON2_FILE}...")
         s2_df = con.execute(f"SELECT * FROM read_parquet('{SEASON2_FILE}')").df()
         s2_df['source_dataset'] = 'season2'
-        
-        print(f"Season 2 Shape: {s2_df.shape}")
-        
-        # Ensure label matches (Season 2: 1=Open, 0=Closed) - verification
-        print(f"Season 2 Label Mean: {s2_df['label'].mean():.2%}")
-        
-        # Align columns
-        common_cols = list(set(overture_final.columns) & set(s2_df.columns))
-        # We need to ensure we keep all columns that are in S2 used for training
-        # If Overture is missing something S2 has, fill with Null
-        # If S2 is missing something Overture has, fill with Null
         
         combined_df = pd.concat([s2_df, overture_final], ignore_index=True)
         print(f"Combined Shape: {combined_df.shape}")
@@ -142,7 +121,6 @@ def build_truth_dataset():
         combined_df = overture_final
 
     # Convert complex columns to JSON strings for compatibility
-    import json
     def to_json(x):
         if x is None:
             return None
@@ -158,12 +136,13 @@ def build_truth_dataset():
         if col in combined_df.columns:
              combined_df[col] = combined_df[col].apply(to_json)
 
-    print(f"\nSaving to {OUTPUT_FILE}...")
-    combined_df.to_parquet(OUTPUT_FILE)
+    print(f"\nSaving to {output_file}...")
+    combined_df.to_parquet(output_file)
     print("Done.")
 
 if __name__ == "__main__":
-    if not os.path.exists(OVERTURE_CURRENT) or not os.path.exists(OVERTURE_PREVIOUS):
-        print("Error: Input files not found. Run fetch_overture_data.py first.")
-    else:
-        build_truth_dataset()
+    parser = argparse.ArgumentParser(description="Build Truth Dataset for a City.")
+    parser.add_argument("--city", type=str, default="nyc", choices=["nyc", "sf"], help="City to process (nyc or sf)")
+    args = parser.parse_args()
+    
+    build_truth_dataset(args.city)
