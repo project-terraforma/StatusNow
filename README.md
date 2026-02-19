@@ -62,22 +62,26 @@ The V3 model uses **52 engineered features**. Below are the most critical ones:
 
 ## Usage
 
-### Quick Start (Reproduce V3 Results) ⭐
+### Reproduction Workflow (End-to-End)
+
+Since the dataset is too large to host in the repository, you must build it locally first.
 
 ```bash
 # 1. Setup Environment
 python3 -m venv .venv && source .venv/bin/activate
 pip install duckdb pandas numpy pyarrow scikit-learn imbalanced-learn xgboost fused geopandas shapely requests tqdm catboost
 
-# 2. Run the V3 Experiment Runner on the Test Set
-python scripts/experiments/experiment_runner_v3.py -i data/processed_for_ml_testing.parquet
+# 2. Build the Overture Truth Dataset (NYC BBox)
+# This downloads comparable slices from Jan 2026 & Feb 2026 releases
+python scripts/data_processing/fetch_overture_data.py
+python scripts/data_processing/build_truth_dataset.py
+
+# 3. Feature Engineering (Generate V3 Features)
+python scripts/data_processing/process_data_v3.py
+
+# 4. Run the V3 Experiments
+python scripts/experiments/experiment_runner_v3.py
 ```
-
-### Complete Workflow
-
-1.  **Build Truth Dataset** (Already done): `scripts/data_processing/fetch_overture_data.py` + `build_truth_dataset.py`
-2.  **Feature Engineering**: `python scripts/data_processing/process_data_v3.py`
-3.  **Run Experiments**: `python scripts/experiments/experiment_runner_v3.py`
 
 ---
 
