@@ -38,7 +38,7 @@ def _is_present(x):
 
 
 # ── main pipeline ─────────────────────────────────────────────────────────
-def process_data_v3(use_project_c_merge: bool = False):
+def process_data_v3(use_project_c_merge: bool = False, input_path: str = "data/Season 2 Samples 3k Project Updated.parquet", output_path: str = "data/processed_for_ml_v3.parquet"):
     import os
     from datetime import datetime
 
@@ -68,7 +68,7 @@ def process_data_v3(use_project_c_merge: bool = False):
         df = pd.concat([s2, pc], ignore_index=True)
         print(f"✅ Merged: Season 2 ({len(s2)}) + Project C ({len(pc)}) = {len(df)} total rows")
     else:
-        parquet_file = "data/Season 2 Samples 3k Project Updated.parquet"
+        parquet_file = input_path
         if not os.path.exists(parquet_file):
             print(f"Error: '{parquet_file}' not found.")
             return
@@ -312,7 +312,7 @@ def process_data_v3(use_project_c_merge: bool = False):
               "is_stale_2yr", "recency_bucket", "brand_x_stale", "nonbrand_stale_risk"]
     print(f"  V3 New Features ({len(v3_new)}): {', '.join(v3_new)}")
 
-    out = "data/processed_for_ml_v3.parquet"
+    out = output_path
     print(f"\n  Saving → '{out}' …")
     final_df.to_parquet(out)
     print("  Done!")
@@ -320,10 +320,31 @@ def process_data_v3(use_project_c_merge: bool = False):
 
 
 if __name__ == "__main__":
+    import argparse
     import sys
-    merge = "--merge" in sys.argv or "-m" in sys.argv
-    if merge:
+
+    parser = argparse.ArgumentParser(description="Process data for ML V3")
+    parser.add_argument("--input", "-i", type=str, default="data/Season 2 Samples 3k Project Updated.parquet", help="Input parquet file")
+    parser.add_argument("--output", "-o", type=str, default="data/processed_for_ml_v3.parquet", help="Output parquet file")
+    parser.add_argument("--merge", "-m", action="store_true", help="Merge with Project C")
+    
+    args = parser.parse_args()
+
+    if args.merge:
         print("\n🔗  MERGE MODE: Season 2 + Project C")
     else:
-        print("\n📊  STANDARD MODE: Season 2 only  (use --merge to combine)")
-    process_data_v3(use_project_c_merge=merge)
+        print(f"\n📊  PROCESSING: {args.input}")
+    
+    # Modify process_data_v3 signature to accept paths? 
+    # Or start modifying the function itself.
+    # The function process_data_v3 inside uses hardcoded paths in the original code. 
+    # I should change the function definition as well.
+    # But wait, replace_file_content is for a chunk. 
+    # I need to modify the function start too. 
+    # Let's do this in 2 steps or just one MultiReplace. 
+    # Actually, I can just modify the __main__ block to call the function with new args, 
+    # BUT I need to update the function signature first.
+    
+    # Let's just update the main block here, but it won't work unless I update the function.
+    # So I should use MultiReplace.
+    process_data_v3(use_project_c_merge=args.merge, input_path=args.input, output_path=args.output)

@@ -189,14 +189,15 @@ def run_cv(X, y, label=""):
     return df_r
 
 
-def run_experiments_v3():
+def run_experiments_v3(v3_path="data/processed_for_ml_v3.parquet"):
     print("=" * 80)
     print("V3 EXPERIMENT SUITE")
     print("=" * 80)
 
     # ── load all versions ─────────────────────────────────────────────────
     v2 = pd.read_parquet("data/processed_for_ml_v2.parquet")
-    v3 = pd.read_parquet("data/processed_for_ml_v3.parquet")
+    v2 = pd.read_parquet("data/processed_for_ml_v2.parquet")
+    v3 = pd.read_parquet(v3_path)
 
     X_v2, y_v2 = v2.drop(columns=["open"]), v2["open"]
     X_v3, y_v3 = v3.drop(columns=["open"]), v3["open"]
@@ -242,4 +243,9 @@ def run_experiments_v3():
 
 
 if __name__ == "__main__":
-    run_experiments_v3()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--v3-input", "-i", type=str, default="data/processed_for_ml_v3.parquet", help="Path to V3 processed parquet file")
+    args = parser.parse_args()
+    
+    run_experiments_v3(v3_path=args.v3_input)
