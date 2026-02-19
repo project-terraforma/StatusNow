@@ -22,14 +22,6 @@ _Note: The SF dataset has significantly fewer "closed" examples in the Overture 
 
 ## 🚀 Model Performance (V3 + Combined)
 
-We trained the V3 model on the combined dataset and achieved our highest accuracy to date.
-
-| Metric                 | Score      | vs. V2 Baseline |
-| :--------------------- | :--------- | :-------------- |
-| **Balanced Accuracy**  | **95.19%** | +24.5% 📈       |
-| **ROC AUC**            | **0.9937** | +0.21           |
-| **Precision (Closed)** | 84.8%      | N/A             |
-
 We trained the V3 model on the combined dataset and achieved our highest _verified_ accuracy to date.
 
 | Metric                 | Score      | vs. V2 Baseline |
