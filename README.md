@@ -8,10 +8,12 @@ We have achieved **92.87% Balanced Accuracy** using our V3 model on a ground-tru
 
 ### V3 Performance Breakthrough (Feb 2026)
 
-| Model Version  | Features Description                            | Balanced Accuracy | ROC AUC    |
-| :------------- | :---------------------------------------------- | :---------------- | :--------- |
-| **V3 + Clean** | **Brand-aware + Recency Bins + Label Cleaning** | **92.87%**        | **0.9874** |
-| V2 Baseline    | Existing interactions + PCA                     | 70.65%            | 0.7842     |
+| Model Version  | Features Description                            | Dataset                  | Balanced Accuracy | ROC AUC    |
+| :------------- | :---------------------------------------------- | :----------------------- | :---------------- | :--------- |
+| **V3 (Final)** | **Brand-aware + Recency Bins + Label Cleaning** | **Overture Truth (12k)** | **92.87%**        | **0.9874** |
+| V3 (Interim)   | Label Refinement applied                        | Season 2 (3k)            | 72.09%            | 0.7912     |
+| V2 Baseline    | Interactions + PCA + Category Risk              | Season 2 (3k)            | 70.65%            | 0.7842     |
+| V1 Baseline    | Delta Features (Simple Change)                  | Season 2 (3k)            | 67.31%            | 0.7421     |
 
 **Key Findings:**
 
