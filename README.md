@@ -15,6 +15,16 @@ We have achieved **92.87% Balanced Accuracy** using our V3 model on a ground-tru
 | V2 Baseline    | Interactions + PCA + Category Risk              | Season 2 (3k)            | 70.65%            | 0.7842     |
 | V1 Baseline    | Delta Features (Simple Change)                  | Season 2 (3k)            | 67.31%            | 0.7421     |
 
+**Algorithm Comparison (V3 + Clean):**
+
+| Algorithm           | Balanced Accuracy | ROC AUC    | Precision (Closed) | Recall (Closed) |
+| :------------------ | :---------------- | :--------- | :----------------- | :-------------- |
+| **CatBoost**        | **92.87%**        | 0.9874     | 87.3%              | **93.0%**       |
+| XGBoost             | 92.17%            | **0.9876** | **92.9%**          | 88.0%           |
+| Logistic Regression | 91.14%            | 0.9694     | 85.1%              | 90.8%           |
+
+_CatBoost is preferred for its balanced accuracy and high recall on closed places._
+
 **Key Findings:**
 
 1.  **Massive Improvement**: Accuracy jumped from ~70% to **~93%** when validating on ground-truth data.
