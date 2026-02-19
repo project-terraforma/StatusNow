@@ -4,31 +4,31 @@ This project classifies whether a place (POI) is Open or Closed based on its **d
 
 ## 🚀 Current Best Model (V3 + Combined Truth)
 
-We have achieved **95.19% Balanced Accuracy** using our V3 model on a combined ground-truth dataset from NYC and San Francisco.
+We have achieved **85.21% Balanced Accuracy** using our V3 model on a combined ground-truth dataset from NYC and San Francisco, after rigorous leakage prevention.
 
 ### V3 Performance Breakthrough (Feb 2026)
 
 | Model Version     | Features Description                       | Dataset              | Balanced Accuracy | ROC AUC    |
 | :---------------- | :----------------------------------------- | :------------------- | :---------------- | :--------- |
-| **V3 (Combined)** | **Brand-aware + Recency + Label Cleaning** | **NYC + SF (18.6k)** | **95.19%**        | **0.9937** |
-| V3 (NYC Only)     | Baseline V3 Model                          | Overture NYC (12k)   | 92.87%            | 0.9874     |
+| **V3 (Combined)** | **Brand-aware + Recency + Label Cleaning** | **NYC + SF (18.6k)** | **85.21%**        | **0.9400** |
+| V3 (Interim)      | Label Refinement applied                   | Season 2 (3k)        | 72.09%            | 0.7912     |
 | V2 Baseline       | Interactions + PCA + Category Risk         | Season 2 (3k)        | 70.65%            | 0.7842     |
 
-**Algorithm Comparison (Combined Dataset):**
+**Algorithm Comparison (Combined Dataset - Leakage Fixed):**
 
 | Algorithm           | Balanced Accuracy | ROC AUC    | Precision (Closed) | Recall (Closed) |
 | :------------------ | :---------------- | :--------- | :----------------- | :-------------- |
-| **CatBoost**        | **95.19%**        | 0.9937     | 84.8%              | **96.4%**       |
-| XGBoost             | 93.43%            | **0.9938** | **93.6%**          | 89.0%           |
-| Logistic Regression | 94.04%            | 0.9813     | 82.1%              | 95.3%           |
+| **CatBoost**        | **85.21%**        | **0.9400** | 60.5%              | **91.1%**       |
+| XGBoost             | 78.14%            | 0.9384     | **85.4%**          | 59.8%           |
+| Logistic Regression | 76.58%            | 0.8546     | 54.5%              | 74.9%           |
 
-_CatBoost is preferred for its superior recall (96.4%) and balanced accuracy._
+_CatBoost remains the top performer, capturing >90% of closed places._
 
 **Key Findings:**
 
-1.  **Massive Improvement**: Accuracy jumped from ~70% to **~95%** by expanding to a larger, multi-city dataset.
-2.  **Generalization**: The model performs robustly across both NYC (93% acc) and San Francisco (91% acc).
-3.  **Brand Gap**: While improved, Brands (~90% acc) still perform differently than Non-Brands (~96% acc), suggesting a need for stratified models.
+1.  **Robust Accuracy**: After fixing a data leak (Confidence score was protecting chured places), the model still achieves **~85% accuracy**, far exceeding the 70% baseline.
+2.  **Brand Gap Solved**: The massive performance gap between Brands and Non-Brands has **disappeared** (only 1% difference now), proving the model is fair.
+3.  **High Recall**: The model is excellent at flagging potential closures (91% recall), making it a great "early warning system".
 
 ---
 
@@ -172,5 +172,5 @@ This section chronicles our progress from the initial baseline to the final V3 b
 - **Method**: Replicated the pipeline for San Francisco (SF) and created a combined dataset.
 - **Results**:
   - **SF Accuracy**: **91.39%** (despite fewer closed samples).
-  - **Combined Model**: **95.19%** Balanced Accuracy on 18,619 samples.
-- **Key Insight**: The model generalizes well, but the brand/non-brand gap is wider in SF (-12.8%). Combining data significantly improves robustness.
+  - **Combined Model**: **85.21%** Balanced Accuracy on 18,619 samples (Leakage Fixed).
+- **Key Insight**: The initial 95% result was inflated by a data leak (Confidence score). After fixing it, the model stabilized at a robust 85%, and uniquely, the **Brand Gap disappeared** (Brands vs Non-Brands now perform equally).

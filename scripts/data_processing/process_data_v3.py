@@ -153,8 +153,13 @@ def process_data_v3(use_project_c_merge: bool = False, input_path: str = "data/S
     df["is_brand"] = df["brand"].apply(_check_brand)
 
     # ── 5. CONFIDENCE ─────────────────────────────────────────────────────
-    df["confidence"] = pd.to_numeric(df["confidence"], errors="coerce").fillna(0)
-
+    df["confidence"] = pd.to_numeric(df["confidence"], errors="coerce")
+    df["base_confidence"] = pd.to_numeric(df["base_confidence"], errors="coerce").fillna(0)
+    
+    # LEAKAGE FIX: If confidence is missing (churned place), use base_confidence.
+    # This prevents the model from learning "Confidence=0 means Closed".
+    df["confidence"] = df["confidence"].fillna(df["base_confidence"])
+    
     # ── 6. CATEGORIES ─────────────────────────────────────────────────────
     print("  categories …")
 

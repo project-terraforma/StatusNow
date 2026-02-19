@@ -4,31 +4,19 @@
 
 | Model                         | Dataset              | ROC AUC    | Precision (Closed) | Recall (Closed) | Balanced Acc |
 | :---------------------------- | :------------------- | :--------- | :----------------- | :-------------- | :----------- |
-| **V3 CatBoost (Combined)** 🏆 | **NYC + SF (18.6k)** | **0.9937** | 0.8476             | **0.9643**      | **0.9519**   |
-| V3 CatBoost (NYC)             | Overture NYC (12k)   | 0.9874     | **0.8732**         | 0.9303          | 0.9287       |
-| V3 CatBoost (SF)              | Overture SF (9.6k)   | 0.9755     | 0.6640             | 0.9395          | 0.9139       |
+| **V3 CatBoost (Combined)** 🏆 | **NYC + SF (18.6k)** | **0.9400** | 0.6050             | **0.9116**      | **0.8521**   |
 | V2 Baseline (CatBoost)        | Season 2 (3k)        | 0.7559     | 0.5726             | 0.6834          | 0.6731       |
 | V1 Baseline (Logistic)        | Season 2 (3k)        | 0.7323     | 0.5903             | 0.7221          | 0.6659       |
 
-_Note: V3 improvements are driven by the new Overture Ground Truth dataset and advanced feature engineering (Brand-Awareness, Recency Decay)._
+_Note: V3 results reflect the final, leak-free model trained on the combined dataset._
 
 ## Model Rankings
 
 ### 🥇 Best Overall: **V3 CatBoost (Combined)**
 
-- **Balanced Accuracy**: **95.19%** (New SOTA)
-- **Recall (Closed)**: **96.43%** - Captures almost all closed places.
-- **Robustness**: Trained on diverse data from two major cities.
-
-### 🥈 Runner-up: **V3 CatBoost (NYC)**
-
-- **Balanced Accuracy**: 92.87%
-- **Precision**: 87.3% - Higher precision than Combined, likely due to cleaner initial labeling in NYC.
-
-### 🥉 Baseline: **V2 CatBoost**
-
-- **Balanced Accuracy**: 67.31%
-- Served as the initial proof-of-concept but limited by small dataset size (3k) and noisy labels.
+- **Balanced Accuracy**: **85.21%** (New SOTA)
+- **Recall (Closed)**: **91.16%** - Excellent at identifying potential closures.
+- **Fairness**: Virtually no performance gap between Brands and Non-Brands.
 
 ## Key Insights
 
