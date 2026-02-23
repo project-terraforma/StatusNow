@@ -68,6 +68,12 @@ The V3 model uses **52 engineered features**. Below are the most critical ones:
 |                       | `category_churn_risk`        | Historical closure rate for this specific category.               | High                   |
 | **Digital Presence**  | `contact_depth`              | Total count of contact methods available.                         | Medium                 |
 |                       | `has_website` / `has_social` | Basic presence flags.                                             | Medium                 |
+| **V4 Compound**       | `has_all_contact`            | Has website AND social AND phone (strong "alive" signal).         | **#4 Importance**      |
+|                       | `no_digital_presence`        | No website, no social, no phone ("digital darkness").             | Medium                 |
+|                       | `zip_churn_rate`             | Closure rate of businesses sharing same zip code.                 | **#7 Importance**      |
+| **License Features**  | `license_active`             | Active public business license on file.                           | Medium                 |
+|                       | `license_age_days`           | Days since license was first created.                             | Medium                 |
+|                       | `days_to_license_expiry`     | Days until license expires (negative = already expired).          | Medium                 |
 
 ---
 
@@ -120,8 +126,11 @@ python scripts/experiments/experiment_runner_v3.py -i data/processed_all_v3.parq
   - `process_data_v3.py`: **V3 Pipeline** (Feature Engineering).
   - `build_truth_dataset.py`: Logic to construct the Overture Ground Truth.
   - `fetch_overture_data.py`: DuckDB script to download Overture slices.
+  - `fetch_licenses.py`: SODA API fetcher for SF & NYC public business license data.
+  - `merge_licenses.py`: Left-joins license data onto truth dataset (name+zip matching).
 - **`scripts/experiments/`**:
   - `experiment_runner_v3.py`: **V3 Experiments** (Label refinement + brand stratification).
+  - `train_sf_licenses.py`: **RF & GBDT training** with V4 features + license enrichment.
 
 ---
 
@@ -174,3 +183,29 @@ This section chronicles our progress from the initial baseline to the final V3 b
   - **SF Accuracy**: **91.39%** (despite fewer closed samples).
   - **Combined Model**: **85.21%** Balanced Accuracy on 18,619 samples (Leakage Fixed).
 - **Key Insight**: The initial 95% result was inflated by a data leak (Confidence score). After fixing it, the model stabilized at a robust 85%, and uniquely, the **Brand Gap disappeared** (Brands vs Non-Brands now perform equally).
+
+### Phase 6: License Enrichment & V4 Feature Engineering (RF/GBDT)
+
+- **Goal**: Enrich the dataset with public business license records and develop new features to improve RF and GBDT models.
+- **Public Data Scraping**:
+  - **SF DataSF** (`g8m3-pdis`): 285K registered business records via SODA API.
+  - **NYC OpenData** (`w7w3-xahh`): 68K issued license records via SODA API.
+  - Joined to existing data using normalized business name + zip code matching.
+  - **SF match rate: 35.1%** (2,327 / 6,622). NYC: 0.7% (legal entity names differ from consumer-facing names).
+- **V4 New Features**:
+  - `has_all_contact` — Has website AND social AND phone. Ranked **#4 most important feature** (importance=0.058).
+  - `zip_churn_rate` — Closure rate by zip code for spatial churn signal. Ranked **#7** (importance=0.037).
+  - `no_digital_presence` — Digital darkness compound (no web, no social, no phone).
+  - `name_changed` — Name changed between snapshots (had near-zero impact in SF).
+- **Results (SF, 6,622 rows, 5-fold CV):**
+
+| Model | Config | ROC AUC | Balanced Acc | Prec (Closed) | Recall (Closed) |
+| :---- | :----- | :------ | :----------- | :------------ | :-------------- |
+| **RF** | V3 Baseline | 0.9228 | 0.8328 | 28.2% | **90.5%** |
+| **RF** | **V3 + V4** | 0.9188 | **0.8334** | 29.8% | 88.3% |
+| RF | V3 + V4 + License | 0.9163 | 0.8236 | 31.8% | 83.3% |
+| **GBDT** | V3 Baseline | **0.9272** | 0.7163 | **78.3%** | 44.5% |
+| GBDT | V3 + V4 | 0.9231 | 0.7134 | 76.8% | 44.1% |
+| GBDT | V3 + V4 + License | 0.9206 | 0.7128 | 75.3% | 44.1% |
+
+- **Key Takeaway**: RF and GBDT have **complementary strengths** — RF achieves 90%+ recall (catches nearly all closures) while GBDT achieves 78% precision (few false alarms). V4 features improved RF precision and F1 while maintaining balanced accuracy. An **ensemble approach** combining both could leverage both strengths.
