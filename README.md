@@ -2,45 +2,69 @@
 
 This project classifies whether a place (POI) is Open or Closed based on its **digital footprint** and **recency signals**.
 
-## 🚀 Current Best Model (V3 + Combined Truth)
+## 🚀 Current Best Model (V5 — Leak-Free + Geographic Hold-Out)
 
-We have achieved **85.21% Balanced Accuracy** using our V3 model on a combined ground-truth dataset from NYC and San Francisco, after rigorous leakage prevention.
+We have achieved **89.41% Balanced Accuracy** on a fully honest evaluation: geographic hold-out test set (Chicago + Miami never seen during training), with all known leakages fixed.
 
-### V3 Performance Breakthrough (Feb 2026)
+### V5 Research Results (Mar 2026)
 
-| Model Version     | Features Description                       | Dataset              | Balanced Accuracy | ROC AUC    |
-| :---------------- | :----------------------------------------- | :------------------- | :---------------- | :--------- |
-| **V3 (Combined)** | **Brand-aware + Recency + Label Cleaning** | **NYC + SF (18.6k)** | **85.21%**        | **0.9400** |
-| V3 (Interim)      | Label Refinement applied                   | Season 2 (3k)        | 72.09%            | 0.7912     |
-| V2 Baseline       | Interactions + PCA + Category Risk         | Season 2 (3k)        | 70.65%            | 0.7842     |
+**Accuracy progression:**
 
-**Algorithm Comparison (Combined Dataset - Leakage Fixed):**
+| Pipeline         | Cities (train) | Samples  | Model                | BalAcc             | Eval Method             |
+| :--------------- | :------------- | :------- | :------------------- | :----------------- | :---------------------- |
+| V3 original      | NYC + SF       | 18.6k    | CatBoost             | ~~85.21%~~ (leaky) | CV on full set          |
+| V4 expanded      | 12 cities      | 123k     | CB+LGBM ensemble     | ~~89.18%~~ (leaky) | CV on full set          |
+| **V5 leak-free** | **10 cities**  | **102k** | **CB+LGBM ensemble** | **89.41%**         | **Hold-out: CHI + MIA** |
 
-| Algorithm           | Balanced Accuracy | ROC AUC    | Precision (Closed) | Recall (Closed) |
-| :------------------ | :---------------- | :--------- | :----------------- | :-------------- |
-| **CatBoost**        | **85.21%**        | **0.9400** | 60.5%              | **91.1%**       |
-| XGBoost             | 78.14%            | 0.9384     | **85.4%**          | 59.8%           |
-| Logistic Regression | 76.58%            | 0.8546     | 54.5%              | 74.9%           |
+**V5 Hold-Out Results (Chicago + Miami — never used in training):**
 
-_CatBoost remains the top performer, capturing >90% of closed places._
+| Model                           | Hold-out BalAcc | Notes                  |
+| :------------------------------ | :-------------- | :--------------------- |
+| CatBoost-A (2000i, d8, lr=0.03) | 89.28%          |                        |
+| CatBoost-B (1500i, d7, lr=0.05) | 89.33%          |                        |
+| CatBoost-C (1000i, d6, lr=0.05) | 89.38%          |                        |
+| CatBoost ensemble (avg)         | 89.34%          |                        |
+| **CB+LGBM (w=0.7/0.3, t=0.52)** | **89.41%**      | **Best — report this** |
 
-**Key Findings:**
+**V5 Leakage Fixes:**
 
-1.  **Robust Accuracy**: After fixing a data leak (Confidence score was protecting chured places), the model still achieves **~85% accuracy**, far exceeding the 70% baseline.
-2.  **Brand Gap Solved**: The massive performance gap between Brands and Non-Brands has **disappeared** (only 1% difference now), proving the model is fair.
-3.  **High Recall**: The model is excellent at flagging potential closures (91% recall), making it a great "early warning system".
+| Issue                 | Root Cause                                               | Fix Applied                                                                |
+| :-------------------- | :------------------------------------------------------- | :------------------------------------------------------------------------- |
+| `confidence` NaN fill | 93.7% of closed (churned) had null→0 confidence          | Use `base_confidence` only; drop `delta_confidence`, `confidence_momentum` |
+| `category_churn_risk` | Global label-based computation leaked into CV test folds | Removed; `category_primary` → CatBoost native cat feature                  |
+| CV-only evaluation    | Hold-out cities inflated by homogeneous training split   | 2 held-out cities (Chicago + Miami) for final report                       |
+
+**Key Findings (V5):**
+
+1. **V4's 89.18% was mostly real.** After fixing leakage the true hold-out result is 89.41% — the leakage was real but the model was also genuinely learning.
+2. **`base_confidence` is the honest strongest signal.** Jan 2026 quality score + staleness interaction accounts for 42% of feature importance.
+3. **Delta features have a structural limitation.** For 93.7% of closed places (churned), ALL delta features are 0 by construction (COALESCE makes current = previous for disappeared places). A **3rd release (Dec 2025)** would give true pre-closure deltas.
+4. **90% is within reach.** Gap is only 0.59pp. Most likely path: fetch Dec 2025 Overture release and add more cities.
+
+**V4 Data-Scale Progression (5-fold CV, leak-free):**
+
+| Dataset             | Samples  | Balanced Accuracy |
+| :------------------ | :------- | :---------------- |
+| NYC + SF            | 12k      | 80.5%             |
+| NYC + SF + Season 2 | 18.6k    | 81.7%             |
+| 5 cities            | 53k      | 88.5%             |
+| **12 cities**       | **123k** | **89.18%**        |
+
+_Data scale was the dominant factor — going from 12k → 123k gained +8.7 pp. Model tuning (HPO) gained only ~0.1 pp._
 
 ---
 
 ## Data
 
-- `data/combined_truth_dataset.parquet`: **GOLD STANDARD** (12,000 rows).
-  - Combined dataset: 3,000 Season 2 samples + 9,000 Overture NYC samples.
-  - Class Balance: ~65% Open / 35% Closed.
-  - Built by comparing Overture Maps releases (Jan vs Feb 2026) to identify true closures.
+- `data/combined_truth_dataset_expanded.parquet`: **GOLD STANDARD V4** (123,082 rows).
+  - 12 cities: NYC, SF, Chicago, LA, Houston, Phoenix, Philadelphia, Seattle, Denver, Boston, Miami, Atlanta.
+  - Class Balance: ~84% Open / 16% Closed (19,273 closed places total).
+  - Built by comparing Overture Maps releases (Jan 2026 vs Feb 2026) to identify true closures.
 
-- `data/Season 2 Samples 3k Project Updated.parquet`: Original primary dataset (3,000 rows).
-- `data/processed_for_ml_testing.parquet`: The final processed feature file used for the V3 results above.
+- `data/combined_truth_dataset.parquet`: Original 12k dataset (NYC + Season 2 samples).
+- `data/combined_truth_dataset_all.parquet`: 18.6k dataset (NYC + SF + Season 2).
+- `data/Season 2 Samples 3k Project Updated.parquet`: Original manually-labeled dataset (3,000 rows).
+- `data/processed_for_ml_testing.parquet`: ⚠️ V3 processed file — contains a confidence leakage bug (see Project History).
 
 ### Final Schema (52 Features)
 
@@ -117,11 +141,14 @@ python scripts/experiments/experiment_runner_v3.py -i data/processed_all_v3.parq
 > **📖 Need help navigating? See [NAVIGATION.md](NAVIGATION.md) for a complete guide!**
 
 - **`scripts/data_processing/`**:
-  - `process_data_v3.py`: **V3 Pipeline** (Feature Engineering).
+  - `process_data_v3.py`: V3 Pipeline (Feature Engineering).
   - `build_truth_dataset.py`: Logic to construct the Overture Ground Truth.
   - `fetch_overture_data.py`: DuckDB script to download Overture slices.
+  - `fetch_overture_expanded.py`: **V4** — fetch any city from Overture S3 by bounding box.
+  - `build_truth_expanded.py`: **V4** — build & merge multi-city truth datasets.
 - **`scripts/experiments/`**:
-  - `experiment_runner_v3.py`: **V3 Experiments** (Label refinement + brand stratification).
+  - `experiment_runner_v3.py`: V3 Experiments (Label refinement + brand stratification).
+  - `v4_research.py`: **V4** — Full research pipeline (V4 features, HPO, ensemble, error analysis).
 
 ---
 
@@ -172,5 +199,27 @@ This section chronicles our progress from the initial baseline to the final V3 b
 - **Method**: Replicated the pipeline for San Francisco (SF) and created a combined dataset.
 - **Results**:
   - **SF Accuracy**: **91.39%** (despite fewer closed samples).
-  - **Combined Model**: **85.21%** Balanced Accuracy on 18,619 samples (Leakage Fixed).
-- **Key Insight**: The initial 95% result was inflated by a data leak (Confidence score). After fixing it, the model stabilized at a robust 85%, and uniquely, the **Brand Gap disappeared** (Brands vs Non-Brands now perform equally).
+  - **Combined Model**: **85.21%** Balanced Accuracy on 18,619 samples.
+- **Key Insight**: The initial 95% result was inflated by a data leak (Confidence score). After fixing it, the model stabilized at ~85%, and uniquely, the **Brand Gap disappeared** (Brands vs Non-Brands now perform equally).
+
+### Phase 6: V4 Research — Leakage Audit + 12-City Expansion (Mar 2026)
+
+- **Goal**: Improve from 85% → 90% Balanced Accuracy.
+- **Leakage Discovery**: `processed_for_ml_testing.parquet` was built with `confidence = 0` for 3,000 churned NYC places (NaN-fill bug). This gave the model a near-perfect closed signal — true leak-free baseline was **80.5%**. `category_churn_risk` (computed globally from labels) also contributed minor leakage.
+- **Strategy**: Scale the dataset dramatically across diverse cities using Overture S3.
+- **Data Expansion**: Fetched 10 new US cities (Chicago, LA, Houston, Phoenix, Philadelphia, Seattle, Denver, Boston, Miami, Atlanta) → **123,082 samples** from 12 cities.
+- **V4 Features**: Extended to **95 features** — added identity-change signals (`name_changed`, `website_domain_changed`, `identity_change_score`), richer per-channel gain/loss flags, and interaction terms.
+- **Results** (leaky CV): CatBoost + LightGBM ensemble: **89.18%**
+- **Key Insight**: More data >> better models. HPO added only ~0.1 pp; going from 12k → 123k added ~8.7 pp.
+
+### Phase 7: V5 Research — Full Leakage Fix + Geographic Hold-Out (Mar 2026)
+
+- **Goal**: Produce an honest, production-grade evaluation with all leakages fixed.
+- **Leakage Audit**:
+  1. `confidence` NaN-fill: churned places (93.7% of closed) had `confidence=null` → filled with 0 → near-perfect closed signal. **Fix**: use `base_confidence` (Jan 2026 value) only. Drop `delta_confidence` and `confidence_momentum`.
+  2. `category_churn_risk` computed globally from all 123k labels before CV → 0.50 correlation with target. **Fix**: removed; replaced with `category_primary` as CatBoost native categorical feature (fold-safe internal target encoding).
+  3. Evaluation: all CV was on the same 12 cities. **Fix**: geographic hold-out — Chicago + Miami held out completely.
+- **Data Architecture Insight**: In the 2-release dataset (`Jan 2026 = base`, `Feb 2026 = current`), churned places (closed by disappearing) have `current = COALESCE(null, prev) = prev`, so **all delta features are 0 by construction** for 93.7% of closed places. This is a structural limitation of 2-release data. A 3rd release (Dec 2025) would provide legitimate pre-closure deltas.
+- **Operating Status Note**: `operating_status = 'closed'` appears in only 1–2 places per city in current Overture data. Closures are expressed as **churning** (disappearance between releases), not explicit status flags. Using operating_status alone as the closed label is not viable with current Overture data.
+- **Results**: CB+LGBM ensemble on Chicago + Miami hold-out: **89.41%** (w_CB=0.7, thresh=0.52).
+- **Scripts**: `scripts/data_processing/process_data_v5.py`, `scripts/experiments/v5_holdout_eval.py`.

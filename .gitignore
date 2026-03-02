@@ -1,6 +1,25 @@
 
-.venv
+# Virtual environment
+.venv/
+
+# Data files (too large for git)
 *.parquet
+data/overture/
+
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+
+# macOS
 .DS_Store
+
+# Local scratch / presentation assets
+memory/
+generate_chart.py
+generate_slide_graphic.py
+*.png
+*.pdf
+
+# Jupyter
+.ipynb_checkpoints/
