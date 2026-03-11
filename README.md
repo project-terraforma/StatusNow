@@ -95,60 +95,104 @@ The V3 model uses **52 engineered features**. Below are the most critical ones:
 
 ---
 
+## 🔌 Contributor Pipeline (Train with Your Own Releases)
+
+If you have access to Overture Maps historical releases and want to train or retrain the model with more data, use the self-contained pipeline:
+
+```bash
+# 1. Drop your Overture parquet releases into overture_releases/
+#    Files must be named with a date prefix: YYYY-MM-DD.N_<label>.parquet
+#    Example:
+#      overture_releases/2025-12-16.0_places.parquet
+#      overture_releases/2026-01-21.0_places.parquet
+#      overture_releases/2026-02-18.0_places.parquet
+
+# 2. Run the pipeline (builds training data, engineers features, trains model)
+python pipeline/run_pipeline.py
+
+# Trained models are saved to pipeline_output/models/
+```
+
+**With 3+ releases**, the pipeline activates trajectory features (`pre_closure_loss`, `social_trend`, `releases_seen`, etc.) that directly address the main V5 limitation — churned places have all delta features = 0 in a 2-release dataset.
+
+See [`pipeline/README.md`](pipeline/README.md) for the full guide, and [`overture_releases/README.md`](overture_releases/README.md) for the file naming convention.
+
+---
+
 ## Usage
 
-### Quick Start (Reproduce V3 Results) ⭐
+### Quick Start (Reproduce V5 Results) ⭐
 
-The essential datasets (`combined_truth_dataset.parquet`, `processed_for_ml_testing.parquet`) are included in the repo, so you can run the experiments immediately.
+The gold standard dataset (`data/combined_truth_dataset_expanded.parquet`) is included in the repo. You can reproduce the **89.41% hold-out result** immediately:
 
 ```bash
 # 1. Setup Environment
 python3 -m venv .venv && source .venv/bin/activate
-pip install duckdb pandas numpy pyarrow scikit-learn imbalanced-learn xgboost fused geopandas shapely requests tqdm catboost
+pip install duckdb pandas numpy pyarrow scikit-learn catboost lightgbm
 
-# 2. Run the V3 Experiment Runner on the Test Set
-python scripts/experiments/experiment_runner_v3.py -i data/processed_for_ml_testing.parquet
+# 2. Reproduce V5: 89.41% balanced accuracy on Chicago + Miami hold-out
+python scripts/experiments/reproduce_v5_results.py
 ```
 
-### Complete Workflow (Build from Scratch)
+This runs the full V5 pipeline (feature engineering → 5-fold CV → geographic hold-out → ensemble search) and prints a results table comparing against the paper result. The script is in `scripts/experiments/` so it's easy to find.
 
-If you want to rebuild the dataset from Overture S3 (e.g., for a different city or new release):
+### Fetch More Cities and Rebuild the Dataset
+
+To expand the dataset with additional cities using the Overture S3 bucket:
 
 ```bash
-# 1. Fetch Overture Data (NYC & SF)
-# Downloads comparable slices from Jan 2026 & Feb 2026 releases
-python scripts/data_processing/fetch_overture_data.py --city nyc
-python scripts/data_processing/fetch_overture_data.py --city sf
+# 1. Fetch Overture data for any city (by bounding box)
+python scripts/data_processing/fetch_overture_expanded.py --cities seattle denver boston
 
-# 2. Build Truth Datasets
-python scripts/data_processing/build_truth_dataset.py --city nyc
-python scripts/data_processing/build_truth_dataset.py --city sf
+# 2. Build truth datasets and merge
+python scripts/data_processing/build_truth_expanded.py --cities seattle denver boston
 
-# 3. Merge Cities (Optional - to create "Combined" dataset)
-python scripts/data_processing/merge_cities.py --cities nyc sf --output data/combined_truth_dataset_all.parquet
-
-# 4. Feature Engineering (Generate V3 Features)
-python scripts/data_processing/process_data_v3.py -i data/combined_truth_dataset_all.parquet -o data/processed_all_v3.parquet
-
-# 5. Run the V3 Experiments
-python scripts/experiments/experiment_runner_v3.py -i data/processed_all_v3.parquet
+# 3. Run feature engineering + train
+#    Use the pipeline for the cleanest experience:
+python pipeline/run_pipeline.py
 ```
 
 ---
 
 ## Repository Structure
 
-> **📖 Need help navigating? See [NAVIGATION.md](NAVIGATION.md) for a complete guide!**
-
-- **`scripts/data_processing/`**:
-  - `process_data_v3.py`: V3 Pipeline (Feature Engineering).
-  - `build_truth_dataset.py`: Logic to construct the Overture Ground Truth.
-  - `fetch_overture_data.py`: DuckDB script to download Overture slices.
-  - `fetch_overture_expanded.py`: **V4** — fetch any city from Overture S3 by bounding box.
-  - `build_truth_expanded.py`: **V4** — build & merge multi-city truth datasets.
-- **`scripts/experiments/`**:
-  - `experiment_runner_v3.py`: V3 Experiments (Label refinement + brand stratification).
-  - `v4_research.py`: **V4** — Full research pipeline (V4 features, HPO, ensemble, error analysis).
+```
+StatusNow/
+├── overture_releases/           ← Drop Overture parquet releases here
+│   └── README.md
+│
+├── pipeline/                   ← Contributor training pipeline (start here)
+│   ├── run_pipeline.py         ← Single command to train a new model
+│   ├── step1_build_training_data.py
+│   ├── step2_feature_engineering.py
+│   ├── step3_train.py
+│   └── README.md
+│
+├── scripts/
+│   ├── data_processing/        ← Reusable data utilities
+│   │   ├── fetch_overture_expanded.py   ← Fetch any city from Overture S3
+│   │   ├── build_truth_expanded.py      ← Build + merge multi-city truth datasets
+│   │   └── merge_cities.py              ← Merge city parquet files
+│   │
+│   ├── experiments/            ← Runnable experiments
+│   │   └── reproduce_v5_results.py ← Reproduce 89.41% hold-out result
+│   │
+│   ├── research/               ← Research history (V3 → V4 → V5 iterations)
+│   │   ├── README.md           ← Explains what each script did
+│   │   ├── v5_holdout_eval.py  ← Best result: 89.41% geo hold-out
+│   │   ├── process_data_v5.py  ← V5 feature engineering (basis for pipeline/step2)
+│   │   ├── v4_research.py      ← V4 full research run
+│   │   ├── improve_v4.py       ← V4 iteration experiments
+│   │   ├── experiment_runner_v3.py
+│   │   ├── process_data_v3.py
+│   │   ├── build_truth_dataset.py
+│   │   └── fetch_overture_data.py
+│   │
+│   └── archived/               ← V1/V2 era scripts (historical reference)
+│
+└── data/
+    └── combined_truth_dataset_expanded.parquet   ← Gold standard (123k rows, 12 cities)
+```
 
 ---
 
