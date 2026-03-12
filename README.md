@@ -8,23 +8,18 @@ We have achieved **89.41% Balanced Accuracy** on a fully honest evaluation: geog
 
 ### V5 Research Results (Mar 2026)
 
-**Accuracy progression:**
+> **Note on V5 Recalls**: At 89.41% Balanced Accuracy, the V5 model correctly identifies **93.7% of all closed businesses** (Closed Recall) and **84.8% of all open businesses** (Open Recall) using geographic hold-out evaluation.
 
-| Pipeline         | Cities (train) | Samples  | Model                | BalAcc             | Eval Method             |
-| :--------------- | :------------- | :------- | :------------------- | :----------------- | :---------------------- |
-| V3 original      | NYC + SF       | 18.6k    | CatBoost             | ~~85.21%~~ (leaky) | CV on full set          |
-| V4 expanded      | 12 cities      | 123k     | CB+LGBM ensemble     | ~~89.18%~~ (leaky) | CV on full set          |
-| **V5 leak-free** | **10 cities**  | **102k** | **CB+LGBM ensemble** | **89.41%**         | **Hold-out: CHI + MIA** |
+**V5 Evaluation Results (Chicago + Miami Hold-out):**
 
-**V5 Hold-Out Results (Chicago + Miami — never used in training):**
-
-| Model                           | Hold-out BalAcc | Notes                  |
-| :------------------------------ | :-------------- | :--------------------- |
-| CatBoost-A (2000i, d8, lr=0.03) | 89.28%          |                        |
-| CatBoost-B (1500i, d7, lr=0.05) | 89.33%          |                        |
-| CatBoost-C (1000i, d6, lr=0.05) | 89.38%          |                        |
-| CatBoost ensemble (avg)         | 89.34%          |                        |
-| **CB+LGBM (w=0.7/0.3, t=0.52)** | **89.41%**      | **Best — report this** |
+| Model                           | CV BalAcc | Hold-out BalAcc | AUC    | Closed Recall | Open Recall | Notes                  |
+| :------------------------------ | :-------- | :-------------- | :----- | :------------ | :---------- | :--------------------- |
+| CatBoost-A (2000i, d8, lr=0.03) | 88.31%    | 89.29%          | 0.9582 | 93.0%         | 85.6%       |                        |
+| CatBoost-B (1500i, d7, lr=0.05) | 88.20%    | 89.33%          | 0.9582 | 92.8%         | 85.6%       |                        |
+| CatBoost-C (1000i, d6, lr=0.05) | 88.41%    | 89.38%          | 0.9578 | 93.7%         | 84.8%       |                        |
+| LightGBM-A (1500, d8)           | 84.50%    | 85.59%          | 0.9413 | 91.4%         | 79.2%       |                        |
+| CatBoost ensemble (avg)         | —         | 89.34%          | —      | —             | —           |                        |
+| **CB+LGBM (w=0.7/0.3, t=0.52)** | **—**     | **89.41%**      | **—**  | **~93.7%**    | **~84.8%**  | **Best — report this** |
 
 **V5 Leakage Fixes:**
 

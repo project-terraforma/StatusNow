@@ -39,9 +39,12 @@ import matplotlib.ticker as mticker
 # ════════════════════════════════════════════════════════════════════════════
 RAW_PATH = "data/combined_truth_dataset.parquet"
 V3_PATH = "data/processed_for_ml_testing.parquet"
-OUT_DIR = "/Users/anthonylamas/.gemini/antigravity/brain/6dcd71ed-bf93-479d-b5a1-6ed4db48813c"
+OUT_DIR = "pipeline_output"
 CRAWL_CACHE = "data/website_crawl_cache.json"
 CV = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+os.makedirs(OUT_DIR, exist_ok=True)
+os.makedirs("data", exist_ok=True)
 
 import importlib.util
 spec = importlib.util.spec_from_file_location("v5", "scripts/experiments/v5_category_reduction.py")
