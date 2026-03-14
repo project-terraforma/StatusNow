@@ -79,8 +79,8 @@ class AgentExecutor:
                     tool_instructions = """
 Available tools for deep research:
 - 'yelp_search': args {"term": "...", "location": "..."}
-- 'yelp_business_details': args {"business_id": "..."} (Fetch Yelp listing status. Requires a Yelp business_id)
-- 'yelp_reviews': args {"business_id": "..."} (Check latest customer reviews to see if they say it's closed)
+- 'yelp_business_details': args {"business_id": "..."} (Fetch Yelp listing status. CRITICAL: You CANNOT use this unless you already know the exact Yelp business_id alias from a previous yelp_search)
+- 'yelp_reviews': args {"business_id": "..."} (Check latest customer reviews. CRITICAL: You CANNOT use this unless you already know the exact Yelp business_id alias)
 - 'tavily_extract': args {"urls": ["http..."]} (Crawl or scrape the full text of a specific webpage)
 - 'tavily_search': args {"query": "..."} (Run another Google search with different keywords)
 
@@ -120,8 +120,14 @@ If you are confident, output the prediction (1 or 0) and set requested_tool to '
                         if len(tool_res_str) > 15000:
                             tool_res_str = tool_res_str[:15000] + "... (truncated)"
                             
-                        # Feed the tool output back into context for the next turn
-                        conversation_context.append(f"Tool {tool_name} Output:\n{tool_res_str}")
+                        # Feed the agent's action and tool output back into context for the next turn
+                        turn_history = (
+                            f"--- Turn {loop_count} History ---\n"
+                            f"Your Reasoning: {best_prediction.reasoning}\n"
+                            f"You Requested Tool: '{tool_name}' with args {tool_args}\n"
+                            f"Tool Output Received:\n{tool_res_str}"
+                        )
+                        conversation_context.append(turn_history)
                     else:
                         # Agent has reached a final conclusion
                         status_color = "bold green" if best_prediction.predicted_label == 1 else "bold red"
@@ -135,8 +141,22 @@ If you are confident, output the prediction (1 or 0) and set requested_tool to '
                             console.print("\n[bold yellow]⚠️ Confidence is below 0.8, but Gemini didn't request any more tools.[/bold yellow]\n")
                         break
                         
-                if loop_count >= max_loops:
-                    console.print(f"\n[red]Max loops ({max_loops}) reached for {poi.name}. Forcing stop.[/red]")
+                if best_prediction is not None and str(best_prediction.requested_tool).lower() != "none" and str(best_prediction.requested_tool).strip() != "":
+                    if loop_count >= max_loops:
+                        console.print(f"\n[red]Max loops ({max_loops}) reached for {poi.name}. Forcing final prediction...[/red]")
+                    else:
+                        console.print(f"[bold yellow]Forcing final prediction based on user stop...[/bold yellow]")
+                        
+                    force_prompt = prompt + "\n\nCRITICAL: The research loop was stopped. You MUST provide your final best-guess prediction now based on the accumulated context. Set `predicted_label` to 1 or 0, and `requested_tool` to 'none'."
+                    console.print(f"[bold yellow]Consulting LLM for forced final prediction...[/bold yellow]")
+                    try:
+                        best_prediction = self.llm.generate_structured_output(force_prompt, AgentPrediction)
+                        status_color = "bold green" if best_prediction.predicted_label == 1 else "bold red"
+                        status_text = "OPEN" if best_prediction.predicted_label == 1 else "CLOSED"
+                        console.print(f"[bold white]LLM Reasoning:[/bold white] {best_prediction.reasoning}")
+                        console.print(f"\n[bold white]Forced Prediction:[/bold white] [{status_color}]{status_text}[/{status_color}] (Confidence: {best_prediction.confidence:.2f})\n")
+                    except Exception as e:
+                        console.print(f"[red]Failed to generate forced prediction:[/red] {e}")
 
                 if best_prediction is None:
                     console.print(f"[red]Failed to extract prediction for {poi.name}[/red]")

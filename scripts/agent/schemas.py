@@ -1,7 +1,6 @@
 import os
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict
-from datetime import datetime
+from typing import List, Optional, Literal, Dict, Any
 
 # --- Ingestion Schemas ---
 
@@ -31,6 +30,7 @@ class PlanGroup(BaseModel):
 
 class AgentPlan(BaseModel):
     plan_id: str
+    plan_reasoning: str = Field(description="Your step-by-step reasoning explaining why you grouped the POIs this way and selected these search strategies.", default="No reasoning provided.")
     created_at: str
     total_pois: int
     total_estimated_credits: int
@@ -43,7 +43,7 @@ class AgentPrediction(BaseModel):
     confidence: float = Field(description="Confidence score between 0.0 and 1.0. If below 0.8, request a tool!")
     reasoning: str = Field(description="Brief explanation of your reasoning or why you are calling a tool.")
     requested_tool: Optional[Literal["yelp_search", "yelp_business_details", "yelp_reviews", "tavily_extract", "tavily_search", "none"]] = Field("none", description="Tool to call if confidence is low.")
-    requested_tool_args: Optional[Dict[str, str]] = Field(default_factory=dict, description="Arguments for the tool (e.g. {'term': 'Pizza', 'location': 'NY'})")
+    requested_tool_args: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arguments for the tool (e.g. {'term': 'Pizza', 'location': 'NY'} or {'urls': ['http...']})")
 
 class ResolutionStatus(BaseModel):
     status: Literal[

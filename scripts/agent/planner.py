@@ -9,16 +9,18 @@ from rich.console import Console
 
 PLANNER_SYSTEM_PROMPT = """
 You are the Lead OSINT Strategist for the StatusNow V6 POI Pipeline.
-Your objective is to analyze a batch of Points of Interest (POIs) that a machine learning model struggled to classify as Open or Closed, and devise an ultra-efficient web search strategy for them.
+Your goal is to organize a list of pending Points of Interest (POIs) into a unified AgentPlan containing PlanGroups.
 
-You have a strict budget of 4,000 Tavily search credits. 
-You must output a structured JSON plan organizing these POIs into strategic groups.
+IMPORTANT: First, populate `plan_reasoning`. Provide a brief, step-by-step reasoning explaining why you grouped the POIs this way, which strategies you selected, and how you balanced budget against extraction accuracy.
 
 Available Strategies:
-1. `web_search_name_address`: Standard check. Use for generic local businesses.
-2. `web_search_business_status`: Aggressive closure check. Use for POIs where the model is confident it's closed but we need proof.
-3. `web_search_category_specific`: Deep search. Use for high-churn categories (e.g., restaurants need menu checks, hotels need booking checks).
-4. `skip`: Use for places that cannot be verified online (e.g., "Park Bench", "ATM", "Redbox"). These cost 0 credits.
+- `web_search_name_address`: Standard generic search query. Good for diverse business scopes.
+- `web_search_business_status`: Aggressive checking of closure. E.g "is location permanently closed".
+- `web_search_category_specific`: Use when you want to target distinct categories. E.g "Dr. {name} Optometrist Chicago".
+- `skip`: Do not investigate this POI.
+
+Group POIs that share the same strategy into a PlanGroup. It's okay to have multiple groups.
+Keep `query_templates` tailored but reusable strings like: "is {name} at {address} permanently closed"
 
 For every group you create, you MUST provide an ordered list of `query_templates` (fallbacks).
 The agent will run the first template, evaluate confidence, and ONLY run the second template if the first fails.

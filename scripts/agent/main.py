@@ -16,6 +16,7 @@ from google import genai
 from tavily import TavilyClient
 from llm.interface import GeminiLLM, GroqLLM
 from schemas import AgentPlan
+import questionary
 
 console = Console()
 
@@ -71,39 +72,35 @@ def select_pois_phase(all_flagged_pois):
         
     console.print("\n[bold green]Phase 1.5:[/bold green] POI Selection")
     
-    panel = Panel(
-        "[bold white]How many POIs would you like to process?[/bold white]\n"
-        "[dim]Options:[/dim]\n"
-        "  [[bold cyan]1[/bold cyan]] Pick 1 random POI for deep analysis\n"
-        "  [[bold cyan]2[/bold cyan]] Pick 10 random POIs for broad analysis\n"
-        "  [[bold cyan]3[/bold cyan]] Pick custom POIs (Paginate & select)",
-        title="[bold cyan]Selection Mode[/bold cyan]",
-        border_style="cyan"
-    )
-    console.print(panel)
+    choice = questionary.select(
+        "How many POIs would you like to process?",
+        choices=[
+            "1. Pick 1 random POI for deep analysis",
+            "2. Pick 10 random POIs for broad analysis",
+            "3. Pick custom POIs (Select with Space/Arrow Keys)"
+        ],
+        style=questionary.Style([('pointer', 'cyan bold'), ('selected', 'green bold')])
+    ).ask()
     
-    while True:
-        choice = console.input("\n[bold blue]Selection>[/bold blue] ").strip()
-        if choice == '1':
-            selected = random.sample(all_flagged_pois, min(1, len(all_flagged_pois)))
-            console.print(f"[green]Selected {len(selected)} random POI(s).[/green]")
-            return selected
-        elif choice == '2':
-            num = min(10, len(all_flagged_pois))
-            selected = random.sample(all_flagged_pois, num)
-            console.print(f"[green]Selected {num} random POIs.[/green]")
-            return selected
-        elif choice == '3':
-            return custom_poi_selection(all_flagged_pois)
-        else:
-            console.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
+    if not choice:
+        sys.exit(0)
+        
+    if choice.startswith("1"):
+        selected = random.sample(all_flagged_pois, min(1, len(all_flagged_pois)))
+        console.print(f"[green]Selected {len(selected)} random POI(s).[/green]")
+        return selected
+    elif choice.startswith("2"):
+        selected = random.sample(all_flagged_pois, min(10, len(all_flagged_pois)))
+        console.print(f"[green]Selected {len(selected)} random POIs.[/green]")
+        return selected
+    elif choice.startswith("3"):
+        return custom_poi_selection(all_flagged_pois)
 
 def custom_poi_selection(all_flagged_pois):
     selected_pois = []
     page = 0
     page_size = 10
     total_pages = (len(all_flagged_pois) + page_size - 1) // page_size
-    
     if total_pages == 0:
         return []
 
@@ -112,53 +109,107 @@ def custom_poi_selection(all_flagged_pois):
         end_idx = min(start_idx + page_size, len(all_flagged_pois))
         current_page_pois = all_flagged_pois[start_idx:end_idx]
         
-        table = Table(title=f"Custom Selection - Page {page+1}/{total_pages}", show_header=True)
-        table.add_column("Idx", style="cyan")
-        table.add_column("Name", style="magenta")
-        table.add_column("Category", style="green")
-        table.add_column("Selected", style="yellow")
+        choices = []
         
-        for i, poi in enumerate(current_page_pois):
-            global_idx = start_idx + i
-            is_selected = "✓" if any(p.poi_id == poi.poi_id for p in selected_pois) else ""
-            table.add_row(str(global_idx), str(poi.name), str(poi.category), is_selected)
+        # TOP BORDER
+        choices.append(questionary.Choice(
+            title=[("class:border", "┌" + "─"*72 + "┐")], 
+            value={"type": "sep"}, 
+            disabled=""
+        ))
+        
+        # POI ITEMS
+        for poi in current_page_pois:
+            is_selected = any(p.poi_id == poi.poi_id for p in selected_pois)
+            check_str = "[★]" if is_selected else "[ ]"
             
-        console.print(table)
-        console.print(f"[dim]Selected so far: {len(selected_pois)}[/dim]")
+            # Format to exactly 70 columns inner
+            name_str = f"{poi.name[:24]:<24}" 
+            cat_str = f"| {poi.category[:19]:<19}"
+            conf_str = f"| Conf: {poi.original_confidence:.2f}"
+            
+            title = [
+                ("class:border", "│ "),
+                ("class:check", f"{check_str} "),
+                ("class:name", f"{name_str} "),
+                ("class:cat", f"{cat_str} "),
+                ("class:conf", f"{conf_str:<19}"),
+                ("class:border", "│")
+            ]
+            choices.append(questionary.Choice(title=title, value={"type": "poi", "poi": poi}))
+            
+        # MIDDLE BORDER
+        choices.append(questionary.Choice(
+            title=[("class:border", "├" + "─"*72 + "┤")], 
+            value={"type": "sep"}, 
+            disabled=""
+        ))
         
-        prompt = "[N]ext page, [P]revious page, [D]one. Or enter comma-separated indices to add (e.g., 0, 2, 5)"
-        choice = console.input(f"\n[bold blue]User Input>[/bold blue] {prompt}\n> ").strip().lower()
+        # NAVIGATION BOTTOM
+        if page < total_pages - 1:
+            choices.append(questionary.Choice(
+                title=[("class:border", "│ "), ("class:nav", f"{'▶ Next Page':<70}"), ("class:border", " │")], 
+                value={"type": "next"}
+            ))
+        if page > 0:
+            choices.append(questionary.Choice(
+                title=[("class:border", "│ "), ("class:nav", f"{'◀ Previous Page':<70}"), ("class:border", " │")], 
+                value={"type": "prev"}
+            ))
+            
+        choices.append(questionary.Choice(
+            title=[("class:border", "│ "), ("class:done", f"{'🚀 Finish & Generate Plan':<70}"), ("class:border", " │")], 
+            value={"type": "done"}
+        ))
         
-        if choice == 'n':
-            if page < total_pages - 1:
-                page += 1
+        # BOTTOM BORDER
+        choices.append(questionary.Choice(
+            title=[("class:border", "└" + "─"*72 + "┘")], 
+            value={"type": "sep"}, 
+            disabled=""
+        ))
+
+        style = questionary.Style([
+            ('check', 'bold green'),
+            ('name', 'bold magenta'),
+            ('cat', 'cyan'),
+            ('conf', 'yellow'),
+            ('nav', 'bold yellow'),
+            ('done', 'bold green'),
+            ('border', 'dim white'),
+            ('pointer', 'bold cyan'),
+            ('selected', 'reverse')
+        ])
+        
+        console.clear()
+        console.print(f"\n[bold cyan]Custom POI Selection - Page {page+1}/{total_pages}[/bold cyan] [dim](Selected globally: {len(selected_pois)})[/dim]")
+        
+        choice = questionary.select(
+            "Press Enter to toggle POIs or navigate:",
+            choices=choices,
+            style=style,
+            instruction="(Arrow keys to move, Enter to select)"
+        ).ask()
+        
+        if choice is None:
+            sys.exit(0)
+            
+        if choice["type"] == "poi":
+            poi = choice["poi"]
+            if any(p.poi_id == poi.poi_id for p in selected_pois):
+                selected_pois = [p for p in selected_pois if p.poi_id != poi.poi_id]
             else:
-                console.print("[yellow]Already on the last page.[/yellow]")
-        elif choice == 'p':
-            if page > 0:
-                page -= 1
-            else:
-                console.print("[yellow]Already on the first page.[/yellow]")
-        elif choice == 'd':
+                selected_pois.append(poi)
+        elif choice["type"] == "next":
+            page += 1
+        elif choice["type"] == "prev":
+            page -= 1
+        elif choice["type"] == "done":
             if not selected_pois:
-                console.print("[yellow]No POIs selected. Defaulting to 1 random.[/yellow]")
+                console.print("\n[yellow]No POIs selected. Defaulting to 1 random.[/yellow]")
                 return random.sample(all_flagged_pois, min(1, len(all_flagged_pois)))
+            console.print(f"\n[green]Selected {len(selected_pois)} custom POI(s).[/green]")
             return selected_pois
-        else:
-            try:
-                indices = [int(x.strip()) for x in choice.split(',')]
-                for idx in indices:
-                    if 0 <= idx < len(all_flagged_pois):
-                        poi_to_add = all_flagged_pois[idx]
-                        if not any(p.poi_id == poi_to_add.poi_id for p in selected_pois):
-                            selected_pois.append(poi_to_add)
-                            console.print(f"[green]Added '{poi_to_add.name}'[/green]")
-                        else:
-                            console.print(f"[yellow]'{poi_to_add.name}' is already selected.[/yellow]")
-                    else:
-                        console.print(f"[red]Index {idx} out of range.[/red]")
-            except ValueError:
-                console.print("[red]Invalid input. Use N, P, D, or comma-separated numbers.[/red]")
 
 def print_plan(agent_plan):
     table = Table(title="Generated Enrichment Plan", show_header=True, header_style="bold yellow")
@@ -203,28 +254,28 @@ def user_approval_gate(agent_plan):
     """Phase 3: Human Approval Gate."""
     console.print("\n[bold red]Phase 3:[/bold red] Human Approval Gate")
     
-    panel = Panel(
-        "[bold white]Please review the suggested plan above.[/bold white]\n"
-        "[dim]Options:[/dim]\n"
-        "  [[bold green]A[/bold green]] Approve plan and begin execution\n"
-        "  [[bold yellow]E[/bold yellow]] Edit strategies or drop POIs\n"
-        "  [[bold red]R[/bold red]] Reject plan and exit",
-        title="[bold red]Action Required[/bold red]",
-        border_style="red"
-    )
-    console.print(panel)
+    choice = questionary.select(
+        "Please review the suggested plan. What would you like to do?",
+        choices=[
+            questionary.Choice("✅ Approve plan and begin execution", value="APPROVE"),
+            questionary.Choice("🧠 View LLM reasoning and strategy logic", value="REASONING"),
+            questionary.Choice("✏️  Edit strategies or drop POIs", value="EDIT"),
+            questionary.Choice("❌ Reject plan and exit", value="REJECT")
+        ],
+        style=questionary.Style([('pointer', 'cyan bold')])
+    ).ask()
     
-    while True:
-        choice = console.input("\n[bold blue]User Input>[/bold blue] ").strip().upper()
-        if choice == 'A':
-            return 'APPROVE', None
-        elif choice == 'R':
-            return 'REJECT', None
-        elif choice == 'E':
-            edit_instructions = console.input("\n[bold yellow]What changes would you like to make to this plan?[/bold yellow]\n> ").strip()
-            return 'EDIT', edit_instructions
-        else:
-            console.print("[red]Invalid choice. Please select A, E, or R.[/red]")
+    if choice == 'APPROVE':
+        return 'APPROVE', None
+    elif choice == 'REJECT':
+        return 'REJECT', None
+    elif choice == 'REASONING':
+        return 'REASONING', None
+    elif choice == 'EDIT':
+        edit_instructions = questionary.text("What changes would you like to make to this plan?").ask()
+        return 'EDIT', edit_instructions
+    
+    return 'REJECT', None
 
 def execute_phase(approved_plan: AgentPlan, all_pois: list):
     """
@@ -266,10 +317,20 @@ def main():
             if action == 'APPROVE':
                 execute_phase(agent_plan, selected_pois)
                 break
+            elif action == 'REASONING':
+                panel = Panel(
+                    Text(agent_plan.plan_reasoning, style="italic cyan"),
+                    title="[bold cyan]🧠 LLM Reasoning Process[/bold cyan]",
+                    border_style="cyan",
+                    padding=(1, 2)
+                )
+                console.print(panel)
+                print_plan(agent_plan) # Re-print summary table under it
             elif action == 'REJECT':
                 console.print("[bold red]Plan rejected by user. Exiting...[/bold red]")
                 sys.exit(0)
             elif action == 'EDIT':
+                if not edit_instr: continue
                 console.print("\n[bold yellow]Sending edit instructions to Agent Planner...[/bold yellow]")
                 llm = GroqLLM("llama-3.3-70b-versatile")
                 planner = AgentPlanner(llm=llm)

@@ -43,6 +43,9 @@ class IngestManager:
                     primary = val.get('primary', val.get('main', val.get('common')))
                     if primary:
                         return str(primary)
+                    address = val.get('freeform')
+                    if address:
+                        return str(address)
                     if list(val.values()):
                         return str(list(val.values())[0])
                     return "Unknown"
@@ -51,12 +54,19 @@ class IngestManager:
                 if v_str.lower() in ["nan", "none", "", "null", "<na>"]:
                     return "Unknown"
                     
-                # if string representaton of a dict like {"primary": "Bob"}
-                if v_str.startswith('{') and v_str.endswith('}'):
+                # if string representaton of a dict or list like {"primary": "Bob"} or [{"freeform": "addr"}]
+                if (v_str.startswith('{') and v_str.endswith('}')) or (v_str.startswith('[') and v_str.endswith(']')):
+                    import json
+                    try:
+                        d = json.loads(v_str)
+                        if d:
+                            return _extract_string(d)
+                    except Exception:
+                        pass
                     try:
                         import ast
                         d = ast.literal_eval(v_str)
-                        if isinstance(d, dict) and d:
+                        if d:
                             return _extract_string(d)
                     except Exception:
                         pass
