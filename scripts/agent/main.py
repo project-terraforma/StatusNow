@@ -239,7 +239,7 @@ def run_plan_phase(flagged_pois: list):
     console.print("\n[bold green]Phase 2:[/bold green] Plan Generation (Groq/Llama-3 API)")
     
     with console.status("[bold yellow]LLM is analyzing POIs and generating research strategies...", spinner="dots"):
-        llm = GroqLLM("llama-3.3-70b-versatile")
+        llm = GroqLLM("meta-llama/llama-4-scout-17b-16e-instruct")
         planner = AgentPlanner(llm=llm)
         agent_plan = planner.generate_plan(flagged_pois)
 
@@ -278,7 +278,7 @@ def execute_phase(approved_plan: AgentPlan, all_pois: list):
     Phase 3: Execute the approved logic using Tavily and LLM point queries.
     """
     console.print("\n[bold green]Plan Approved! Commencing execution...[/bold green]\n")
-    llm = GroqLLM("llama-3.3-70b-versatile")
+    llm = GroqLLM("meta-llama/llama-4-scout-17b-16e-instruct")
     tavily_client = TavilyClient(api_key=config.tavily_api_key)
     
     executor = AgentExecutor(
@@ -328,7 +328,7 @@ def main():
             elif action == 'EDIT':
                 if not edit_instr: continue
                 console.print("\n[bold yellow]Sending edit instructions to Agent Planner...[/bold yellow]")
-                llm = GroqLLM("llama-3.3-70b-versatile")
+                llm = GroqLLM("meta-llama/llama-4-scout-17b-16e-instruct")
                 planner = AgentPlanner(llm=llm)
                 
                 with console.status("[bold yellow]LLM is updating the plan...", spinner="dots"):
