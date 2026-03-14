@@ -220,6 +220,7 @@ def main(input_path: str = "data/combined_truth_dataset_expanded.parquet"):
 
     # CB + LGBM weighted search
     best_ens_ba, best_ens_cfg = 0.0, {}
+    best_avg_probs = None
     for name_cb in cb_names:
         for w_cb in np.arange(0.3, 0.81, 0.1):
             for name_lgbm in lgbm_names:
@@ -229,6 +230,7 @@ def main(input_path: str = "data/combined_truth_dataset_expanded.parquet"):
                     best_ens_ba  = ba
                     best_ens_cfg = {"cb": name_cb, "lgbm": name_lgbm,
                                     "w_cb": round(w_cb, 2), "t": round(t, 2)}
+                    best_avg_probs = avg
 
     holdout_results["CB+LGBM ensemble"] = (best_ens_ba, best_ens_ba)
     print(f"  CB+LGBM ensemble (thresh={best_ens_cfg.get('t', '?'):.2f}): BalAcc={best_ens_ba:.4f}")
@@ -288,6 +290,20 @@ def main(input_path: str = "data/combined_truth_dataset_expanded.parquet"):
     ✓ Geographic hold-out: Chicago + Miami never used in training
 """)
 
+    # ── Export Predictions for Agent ──────────────────────────────────────────
+    if best_avg_probs is not None:
+        export_path = "data/v5_predictions_export.parquet"
+        print(f"\nExporting V5 hold-out predictions to: {export_path}")
+        out_df = test_df.copy()
+        out_df['v5_prob_open'] = best_avg_probs
+        out_df['v5_prob_closed'] = 1.0 - best_avg_probs
+        out_df['v5_confidence'] = np.maximum(out_df['v5_prob_open'], out_df['v5_prob_closed'])
+        out_df['v5_predicted_label'] = (out_df['v5_prob_open'] >= best_ens_cfg.get('t', 0.5)).astype(int)
+        
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        out_df.to_parquet(export_path, index=False)
+        print("Export complete.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -311,3 +327,16 @@ if __name__ == "__main__":
         sys.exit(1)
 
     main(args.input)
+
+    print("\n" + "=" * 70)
+    print("V6 Agent Extension")
+    print("=" * 70)
+    choice = input("\nWould you like to run the V6 AI Agent to improve low-confidence results? (y/n): ").strip().lower()
+    if choice == 'y':
+        import subprocess
+        agent_script = os.path.join(os.path.dirname(__file__), "..", "agent", "main.py")
+        print("\nLaunching V6 Agent...\n")
+        try:
+            subprocess.run([sys.executable, agent_script], check=True)
+        except Exception as e:
+            print(f"Failed to launch agent: {e}")

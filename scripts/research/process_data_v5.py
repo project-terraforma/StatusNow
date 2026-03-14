@@ -347,7 +347,10 @@ def build_v5_features(input_path: str) -> pd.DataFrame:
     numeric_features = [f for f in numeric_features if f in df.columns]
 
     # category_primary is kept as raw string for CatBoost categorical encoding
-    keep_cols = numeric_features + ["category_primary", "source_dataset", "label"]
+    keep_cols = numeric_features + [
+        "category_primary", "source_dataset", "label",
+        "id", "base_id", "names", "base_names", "categories", "base_categories", "addresses", "base_addresses"
+    ]
     keep_cols = [c for c in keep_cols if c in df.columns]
 
     final = df[keep_cols].copy()

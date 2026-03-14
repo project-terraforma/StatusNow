@@ -23,3 +23,5 @@ generate_slide_graphic.py
 
 # Jupyter
 .ipynb_checkpoints/
+
+.env
