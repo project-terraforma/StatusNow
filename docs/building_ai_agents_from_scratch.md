@@ -68,13 +68,13 @@ Once the LLM read the word **CRITICAL** and explicitly understood the dependency
 
 ## Part 2: Async Agent for Scalability and Batching
 
-As the agent got faster, it hit a new wall: API Rate Limits. Groq's free tier is generous, but as soon as I started running the agent in an asynchronous loop, I was hitting `429: Too Many Requests` status codes within seconds. Each POI was triggering multiple API calls in quick succession, overwhelming the "Tokens Per Minute" bucket.
+To take this from a prototype to a production-grade tool, I had to solve for scale. Processing businesses one-by-one is fine for a handful of samples, but when you're dealing with a dataset of thousands, the overhead of individual network requests becomes a massive bottleneck. Every round-trip to the LLM adds latency that compounds quickly, making the system sluggish and inefficient.
 
 ### The Fix: Single-Prompt Batching
 
-Instead of calling the API for every individual step of every individual business, I refactored the pipeline to use **Single-Prompt Batching**.
+The breakthrough for scalability was moving to **Single-Prompt Batching**. Instead of treating the agent's work as a sequence of isolated tasks, I refactored the pipeline to process POIs in groups, allowing for much higher throughput and better utilization of the model's context window.
 
-I transformed the "Research Worker" to gather evidence for 5 POIs at once. Then, instead of 5 separate inference calls, the agent sends one high-context prompt containing a JSON array of all 5 research bundles.
+I transformed the "Research Worker" to gather evidence for 5 POIs in parallel. Then, instead of initiating 5 separate inference calls, the agent bundles all the research for the entire group into a single, high-context prompt containing a JSON array of research bundles.
 
 ```json
 {
@@ -86,7 +86,7 @@ I transformed the "Research Worker" to gather evidence for 5 POIs at once. Then,
 }
 ```
 
-By requesting a **Structured Output** that returns a list of 5 predictions in one go, I reduced the API chatter by 80%. Combined with an **Exponential Backoff** (waiting 30-60s on a 429 error), the agent now glides through thousands of records without breaking a sweat.
+By requesting a **Structured Output** that returns a list of all 5 predictions in one go, I reduced the network overhead and "AI chatter" by 80%. This batching strategy maximizes efficiency—the agent now glides through thousands of records with minimal latency, turning what was once a slow, sequential process into a high-performance parallel pipeline.
 
 ## Takeaways from Building From Scratch
 
