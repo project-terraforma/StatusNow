@@ -8,13 +8,42 @@ def yelp_search(term: str, location: str) -> dict:
         return {"error": "YELP_API_KEY not configured."}
     url = "https://api.yelp.com/v3/businesses/search"
     headers = {"Authorization": f"Bearer {config.yelp_api_key}"}
-    params = {"term": term, "location": location, "limit": 3}
+    params = {"term": term, "location": location, "limit": 2}
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        search_data = resp.json()
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Search failed: {str(e)}"}
+        
+    businesses = search_data.get("businesses", [])
+    if not businesses:
+        return {"search_results": [], "message": "No businesses found."}
+        
+    enriched = []
+    for b in businesses:
+        b_id = b.get("id")
+        result = {"basic_info": b}
+        
+        # Fetch details
+        try:
+            d_resp = requests.get(f"https://api.yelp.com/v3/businesses/{b_id}", headers=headers, timeout=10)
+            if d_resp.status_code == 200:
+                result["details"] = d_resp.json()
+        except Exception:
+            pass
+            
+        # Fetch reviews
+        try:
+            r_resp = requests.get(f"https://api.yelp.com/v3/businesses/{b_id}/reviews", headers=headers, timeout=10)
+            if r_resp.status_code == 200:
+                result["reviews"] = r_resp.json().get("reviews", [])
+        except Exception:
+            pass
+            
+        enriched.append(result)
+        
+    return {"bundled_results": enriched}
 
 def yelp_business_details(business_id: str) -> dict:
     """Get rich business data, such as hours of operation and photos."""

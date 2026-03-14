@@ -3,6 +3,7 @@ from typing import List
 from schemas import POIRecord, AgentPrediction
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.console import Console
+from rich.panel import Panel
 
 from llm.interface import LLMInterface
 
@@ -78,14 +79,13 @@ class AgentExecutor:
                     
                     tool_instructions = """
 Available tools for deep research:
-- 'yelp_search': args {"term": "...", "location": "..."}
-- 'yelp_business_details': args {"business_id": "..."} (Fetch Yelp listing status. CRITICAL: You CANNOT use this unless you already know the exact Yelp business_id alias from a previous yelp_search)
-- 'yelp_reviews': args {"business_id": "..."} (Check latest customer reviews. CRITICAL: You CANNOT use this unless you already know the exact Yelp business_id alias)
+- 'yelp_search': args {"term": "...", "location": "..."} (Automatically fetches business details and reviews for the top matches. Use this to rapidly get Yelp context.)
 - 'tavily_extract': args {"urls": ["http..."]} (Crawl or scrape the full text of a specific webpage)
-- 'tavily_search': args {"query": "..."} (Run another Google search with different keywords)
+- 'tavily_search': args {"query": "..."} (Run another Google search with different keywords. DO NOT CALL WITH EMPTY ARGS {})
 
 Given this accumulated data, determine if POI is Open or Closed.
 If you need more info to reach 0.8+ confidence, request a tool by setting `requested_tool` and `requested_tool_args`.
+CRITICAL RULE: If a tool requires arguments (like `business_id` or `query`), you MUST provide them. DO NOT return `{}` for `requested_tool_args`. If you don't know the required argument, you MUST use a different tool (like `tavily_search` or `yelp_search`) to find it first, or just stop and make a prediction by setting requested_tool to 'none'.
 If you are confident, output the prediction (1 or 0) and set requested_tool to 'none'.
 """
                     prompt = "\n\n---\n\n".join(conversation_context) + "\n" + tool_instructions
@@ -103,7 +103,8 @@ If you are confident, output the prediction (1 or 0) and set requested_tool to '
                         tool_name = best_prediction.requested_tool
                         tool_args = best_prediction.requested_tool_args or {}
                         
-                        console.print(f"[magenta]LLM requested tool:[/magenta] {tool_name} with args {tool_args}")
+                        tool_text = f"[bold magenta]Tool:[/bold magenta] [cyan]{tool_name}[/cyan]\n[bold magenta]Args:[/bold magenta] [green]{tool_args}[/green]"
+                        console.print(Panel(tool_text, title="[bold magenta]Tool Requested[/bold magenta]", border_style="magenta", expand=False))
                         
                         # Stop and ask user before calling the tool
                         choice = console.input(f"[bold blue]User Input>[/bold blue] Press Enter to allow tool execution and loop again, or 'S' to Stop and force prediction: ").strip().lower()
@@ -111,9 +112,13 @@ If you are confident, output the prediction (1 or 0) and set requested_tool to '
                             console.print(f"[bold yellow]User force-stopped inference loop for {poi.name}.[/bold yellow]\n")
                             break
                             
-                        # Execute the tool
-                        console.print(f"[cyan]Executing {tool_name}...[/cyan]")
-                        tool_res = execute_tool(self.tavily, tool_name, tool_args)
+                        # Execute the tool or catch empty args
+                        if not tool_args or all(not v for v in tool_args.values()):
+                            console.print(f"[red]Intercepted invalid empty arguments from LLM. Feeding error back.[/red]")
+                            tool_res = {"error": "CRITICAL ERROR: You provided empty arguments {}. You MUST provide the required arguments (e.g. business_id) or do not use this tool."}
+                        else:
+                            console.print(f"[cyan]Executing {tool_name}...[/cyan]")
+                            tool_res = execute_tool(self.tavily, tool_name, tool_args)
                         
                         # Format the result to avoid token overflow
                         tool_res_str = json.dumps(tool_res)

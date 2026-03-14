@@ -99,10 +99,12 @@ def select_pois_phase(all_flagged_pois):
 def custom_poi_selection(all_flagged_pois):
     selected_pois = []
     page = 0
-    page_size = 10
+    page_size = 25
     total_pages = (len(all_flagged_pois) + page_size - 1) // page_size
     if total_pages == 0:
         return []
+
+    last_selected_choice_value = None
 
     while True:
         start_idx = page * page_size
@@ -111,72 +113,49 @@ def custom_poi_selection(all_flagged_pois):
         
         choices = []
         
-        # TOP BORDER
-        choices.append(questionary.Choice(
-            title=[("class:border", "┌" + "─"*72 + "┐")], 
-            value={"type": "sep"}, 
-            disabled=""
-        ))
-        
         # POI ITEMS
         for poi in current_page_pois:
             is_selected = any(p.poi_id == poi.poi_id for p in selected_pois)
-            check_str = "[★]" if is_selected else "[ ]"
+            check_tuple = ("class:check_selected", "● ") if is_selected else ("class:check_empty", "○ ")
             
             # Format to exactly 70 columns inner
-            name_str = f"{poi.name[:24]:<24}" 
-            cat_str = f"| {poi.category[:19]:<19}"
+            name_str = f"{poi.name[:28]:<28}" 
+            cat_str = f"| {poi.category[:20]:<20}"
             conf_str = f"| Conf: {poi.original_confidence:.2f}"
             
             title = [
-                ("class:border", "│ "),
-                ("class:check", f"{check_str} "),
+                check_tuple,
                 ("class:name", f"{name_str} "),
                 ("class:cat", f"{cat_str} "),
-                ("class:conf", f"{conf_str:<19}"),
-                ("class:border", "│")
+                ("class:conf", f"{conf_str}")
             ]
             choices.append(questionary.Choice(title=title, value={"type": "poi", "poi": poi}))
             
-        # MIDDLE BORDER
-        choices.append(questionary.Choice(
-            title=[("class:border", "├" + "─"*72 + "┤")], 
-            value={"type": "sep"}, 
-            disabled=""
-        ))
-        
         # NAVIGATION BOTTOM
         if page < total_pages - 1:
             choices.append(questionary.Choice(
-                title=[("class:border", "│ "), ("class:nav", f"{'▶ Next Page':<70}"), ("class:border", " │")], 
+                title=[("class:nav", "▶ Next Page")], 
                 value={"type": "next"}
             ))
         if page > 0:
             choices.append(questionary.Choice(
-                title=[("class:border", "│ "), ("class:nav", f"{'◀ Previous Page':<70}"), ("class:border", " │")], 
+                title=[("class:nav", "◀ Previous Page")], 
                 value={"type": "prev"}
             ))
             
         choices.append(questionary.Choice(
-            title=[("class:border", "│ "), ("class:done", f"{'🚀 Finish & Generate Plan':<70}"), ("class:border", " │")], 
+            title=[("class:done", "🚀 Finish & Generate Plan")], 
             value={"type": "done"}
-        ))
-        
-        # BOTTOM BORDER
-        choices.append(questionary.Choice(
-            title=[("class:border", "└" + "─"*72 + "┘")], 
-            value={"type": "sep"}, 
-            disabled=""
         ))
 
         style = questionary.Style([
-            ('check', 'bold green'),
-            ('name', 'bold magenta'),
-            ('cat', 'cyan'),
+            ('check_selected', 'bold yellow'),
+            ('check_empty', 'dim white'),
+            ('name', 'cyan'),
+            ('cat', 'blue'),
             ('conf', 'yellow'),
             ('nav', 'bold yellow'),
             ('done', 'bold green'),
-            ('border', 'dim white'),
             ('pointer', 'bold cyan'),
             ('selected', 'reverse')
         ])
@@ -184,15 +163,30 @@ def custom_poi_selection(all_flagged_pois):
         console.clear()
         console.print(f"\n[bold cyan]Custom POI Selection - Page {page+1}/{total_pages}[/bold cyan] [dim](Selected globally: {len(selected_pois)})[/dim]")
         
+        default_choice = None
+        if last_selected_choice_value:
+            for c in choices:
+                # Compare type and id to set default choice back
+                if c.value["type"] == last_selected_choice_value["type"]:
+                    if c.value["type"] == "poi" and c.value["poi"].poi_id == last_selected_choice_value["poi"].poi_id:
+                        default_choice = c
+                        break
+                    elif c.value["type"] != "poi":
+                        default_choice = c
+                        break
+
         choice = questionary.select(
             "Press Enter to toggle POIs or navigate:",
             choices=choices,
+            default=default_choice,
             style=style,
             instruction="(Arrow keys to move, Enter to select)"
         ).ask()
         
         if choice is None:
             sys.exit(0)
+            
+        last_selected_choice_value = choice
             
         if choice["type"] == "poi":
             poi = choice["poi"]
@@ -202,8 +196,10 @@ def custom_poi_selection(all_flagged_pois):
                 selected_pois.append(poi)
         elif choice["type"] == "next":
             page += 1
+            last_selected_choice_value = None
         elif choice["type"] == "prev":
             page -= 1
+            last_selected_choice_value = None
         elif choice["type"] == "done":
             if not selected_pois:
                 console.print("\n[yellow]No POIs selected. Defaulting to 1 random.[/yellow]")
