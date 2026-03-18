@@ -1,0 +1,7 @@
+{
+  "w_cb": 0.7,
+  "w_lgbm": 0.3,
+  "threshold": 0.52,
+  "catboost_model": "catboost_c.cbm",
+  "lightgbm_model": "lightgbm_a.pkl"
+}

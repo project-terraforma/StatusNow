@@ -29,13 +29,6 @@ We have achieved **89.41% Balanced Accuracy** on a fully honest evaluation: geog
 | `category_churn_risk` | Global label-based computation leaked into CV test folds | Removed; `category_primary` → CatBoost native cat feature                  |
 | CV-only evaluation    | Hold-out cities inflated by homogeneous training split   | 2 held-out cities (Chicago + Miami) for final report                       |
 
-**Key Findings (V5):**
-
-1. **V4's 89.18% was mostly real.** After fixing leakage the true hold-out result is 89.41% — the leakage was real but the model was also genuinely learning.
-2. **`base_confidence` is the honest strongest signal.** Jan 2026 quality score + staleness interaction accounts for 42% of feature importance.
-3. **Delta features have a structural limitation.** For 93.7% of closed places (churned), ALL delta features are 0 by construction (COALESCE makes current = previous for disappeared places). A **3rd release (Dec 2025)** would give true pre-closure deltas.
-4. **90% is within reach.** Gap is only 0.59pp. Most likely path: fetch Dec 2025 Overture release and add more cities.
-
 **V4 Data-Scale Progression (5-fold CV, leak-free):**
 
 | Dataset             | Samples  | Balanced Accuracy |
@@ -63,7 +56,7 @@ _Data scale was the dominant factor — going from 12k → 123k gained +8.7 pp. 
 
 ### Final Schema (52 Features)
 
-The V3 model uses **52 engineered features**. Below are the most critical ones:
+The V5 model uses **63+ engineered features**. Below are the most critical ones:
 
 | Category              | Feature Name                 | Description                                                       | Correlation/Importance |
 | :-------------------- | :--------------------------- | :---------------------------------------------------------------- | :--------------------- |
@@ -114,22 +107,48 @@ See [`pipeline/README.md`](pipeline/README.md) for the full guide, and [`overtur
 
 ---
 
+## V6 Agent Layer
+
+The V6 agent sits on top of the V5 model and automatically researches POIs where the model returns low-confidence predictions (default threshold: 0.65). It performs targeted Tavily web searches, feeds results to an LLM for an independent open/closed verdict, and outputs structured predictions with confidence deltas.
+
+**Two modes:**
+
+| Mode | Script | Use Case |
+|---|---|---|
+| **Sync (interactive)** | `scripts/agent/main.py` | Approval-gated: review and edit the research plan before execution |
+| **Async (high-throughput)** | `scripts/agent/async_main.py` | 3 parallel research workers + 1 batching inference worker, live dashboard UI |
+
+```bash
+# Sync mode — interactive approval gate
+python scripts/agent/main.py
+
+# Async mode — high-throughput with live dashboard
+python scripts/agent/async_main.py
+```
+
+Requires `GROQ_API_KEY` and `TAVILY_API_KEY` in your environment (or `.env` file). See [`docs/v6_agent_architecture.md`](docs/v6_agent_architecture.md) for full details.
+
+---
+
 ## Usage
 
-### Quick Start (Reproduce V5 Results) ⭐
+### Quick Start ⭐
 
-The gold standard dataset (`data/combined_truth_dataset_expanded.parquet`) is included in the repo. You can reproduce the **89.41% hold-out result** immediately:
+The gold standard dataset (`data/combined_truth_dataset_expanded.parquet`) is included in the repo. Two scripts in `scripts/experiments/`:
 
 ```bash
 # 1. Setup Environment
 python3 -m venv .venv && source .venv/bin/activate
 pip install duckdb pandas numpy pyarrow scikit-learn catboost lightgbm
 
-# 2. Reproduce V5: 89.41% balanced accuracy on Chicago + Miami hold-out
-python scripts/experiments/reproduce_v5_results.py
+# Train only the best model — fast, exports predictions for the V6 agent
+python scripts/experiments/v5_train_best.py
+
+# Full benchmark — CV on all configs, ensemble search, comparison table
+python scripts/experiments/v5_full_benchmark.py
 ```
 
-This runs the full V5 pipeline (feature engineering → 5-fold CV → geographic hold-out → ensemble search) and prints a results table comparing against the paper result. The script is in `scripts/experiments/` so it's easy to find.
+`v5_train_best.py` trains the known best configuration (CatBoost-C + LightGBM-A, w=0.7, t=0.52) directly and exports predictions. `v5_full_benchmark.py` runs the complete research suite (5-fold CV → all models → ensemble search) to reproduce the full comparison table.
 
 ### Fetch More Cities and Rebuild the Dataset
 
@@ -170,7 +189,19 @@ StatusNow/
 │   │   └── merge_cities.py              ← Merge city parquet files
 │   │
 │   ├── experiments/            ← Runnable experiments
-│   │   └── reproduce_v5_results.py ← Reproduce 89.41% hold-out result
+│   │   ├── v5_train_best.py         ← Train best model, save artifacts, export predictions
+│   │   ├── v5_full_benchmark.py     ← Full CV + all models + ensemble search
+│   │   └── v6_enrichment_experiment.py  ← V5 + website crawling + public records
+│   │
+│   ├── agent/                  ← V6 AI agent layer
+│   │   ├── main.py             ← Sync CLI (interactive, approval-gated)
+│   │   ├── async_main.py       ← Async CLI (high-throughput, live dashboard)
+│   │   ├── config.py           ← API keys and thresholds
+│   │   ├── llm/interface.py    ← LLM abstraction (Groq + Gemini)
+│   │   ├── ingest.py           ← Phase 1: confidence filtering
+│   │   ├── planner.py          ← Phase 2: research plan generation
+│   │   ├── executor.py         ← Phase 4: Tavily search + LLM prediction
+│   │   └── schemas.py          ← Pydantic schemas
 │   │
 │   ├── research/               ← Research history (V3 → V4 → V5 iterations)
 │   │   ├── README.md           ← Explains what each script did
@@ -261,4 +292,4 @@ This section chronicles our progress from the initial baseline to the final V3 b
 - **Data Architecture Insight**: In the 2-release dataset (`Jan 2026 = base`, `Feb 2026 = current`), churned places (closed by disappearing) have `current = COALESCE(null, prev) = prev`, so **all delta features are 0 by construction** for 93.7% of closed places. This is a structural limitation of 2-release data. A 3rd release (Dec 2025) would provide legitimate pre-closure deltas.
 - **Operating Status Note**: `operating_status = 'closed'` appears in only 1–2 places per city in current Overture data. Closures are expressed as **churning** (disappearance between releases), not explicit status flags. Using operating_status alone as the closed label is not viable with current Overture data.
 - **Results**: CB+LGBM ensemble on Chicago + Miami hold-out: **89.41%** (w_CB=0.7, thresh=0.52).
-- **Scripts**: `scripts/data_processing/process_data_v5.py`, `scripts/experiments/v5_holdout_eval.py`.
+- **Scripts**: `scripts/research/process_data_v5.py`, `scripts/research/v5_holdout_eval.py`.

@@ -1,41 +1,24 @@
 """
-Reproduce V5 Results — 89.41% Balanced Accuracy
-================================================
+V5 Full Benchmark — All Models, CV, Ensemble Search
+====================================================
 
-This script reproduces the best result from the StatusNow research:
-  CB+LGBM ensemble — 89.41% balanced accuracy on a geographic hold-out
-  (Chicago + Miami never seen during training).
-
-What this script does
----------------------
-1. Loads the gold standard dataset: data/combined_truth_dataset_expanded.parquet
-   (123,082 rows, 12 US cities, Jan 2026 vs Feb 2026 Overture releases)
-
-2. Runs V5 leak-free feature engineering (same as process_data_v5.py):
-   - Uses base_confidence only (no leaky delta confidence)
-   - category_primary passed as CatBoost native categorical feature
-     (avoids global target-encoding leakage)
-
-3. Splits into train / hold-out:
-   - Training: 10 cities (NYC, SF, LA, Houston, Phoenix, Philly, Seattle, Denver, Boston, Atlanta)
-   - Hold-out:  Chicago + Miami  ← NEVER seen during training
-
-4. 5-fold stratified CV on training set (for model selection)
-
-5. Hold-out evaluation:
-   - CatBoost-A, B, C individually
-   - CatBoost ensemble (average of A/B/C)
-   - CB+LGBM weighted ensemble (best weights searched)
-
-6. Feature importance for the best CatBoost model
+Runs the complete V5 evaluation suite:
+  1. 5-fold stratified CV on all CatBoost + LightGBM configs
+  2. Hold-out evaluation (Chicago + Miami) for each model individually
+  3. Ensemble search: CatBoost avg + CB+LGBM weighted sweep
+  4. Feature importance for the best CatBoost model
+  5. Final comparison table + exports hold-out predictions
 
 Expected result
 ---------------
   CB+LGBM ensemble (w_CB=0.7, t=0.52): ~89.41% balanced accuracy
 
+Use this script to verify the paper result or compare new model configs.
+For a faster run that just trains the known best model, use v5_train_best.py.
+
 Usage
 -----
-  python scripts/experiments/reproduce_v5_results.py
+  python scripts/experiments/v5_full_benchmark.py
 
   Options:
     --input  FILE   Path to the truth dataset (default: data/combined_truth_dataset_expanded.parquet)
@@ -308,8 +291,8 @@ def main(input_path: str = "data/combined_truth_dataset_expanded.parquet"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
-            "Reproduce the V5 result: 89.41% balanced accuracy on\n"
-            "Chicago + Miami geographic hold-out (leak-free evaluation).\n\n"
+            "Full V5 benchmark: CV + all models + ensemble search.\n"
+            "Reproduces 89.41% balanced accuracy on Chicago + Miami hold-out.\n\n"
             "Requires: data/combined_truth_dataset_expanded.parquet"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
