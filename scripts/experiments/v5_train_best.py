@@ -24,8 +24,9 @@ Usage
   python scripts/experiments/v5_train_best.py
 
   Options:
-    --input   FILE   Path to the truth dataset (default: data/combined_truth_dataset_expanded.parquet)
-    --output  FILE   Where to save predictions  (default: data/v5_predictions_export.parquet)
+    --input         FILE   Path to the truth dataset (default: data/combined_truth_dataset_expanded.parquet)
+    --output        FILE   Where to save predictions  (default: data/v5_predictions_export.parquet)
+    --no-confidence        Drop all base_confidence features before training
 """
 
 import argparse
@@ -74,9 +75,17 @@ THRESH = 0.52
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def main(input_path: str, output_path: str, model_dir: str = None):
+CONFIDENCE_FEATURES = [
+    "base_conf", "base_conf_sq", "base_conf_x_stale",
+    "loss_x_low_conf", "stale_x_low_conf",
+]
+
+
+def main(input_path: str, output_path: str, model_dir: str = None,
+         no_confidence: bool = False):
+    mode = "NO-CONFIDENCE" if no_confidence else "full feature set"
     print("=" * 70)
-    print("V5 TRAIN BEST MODEL — CB+LGBM Ensemble (w=0.7, t=0.52)")
+    print(f"V5 TRAIN BEST MODEL — CB+LGBM Ensemble (w=0.7, t=0.52)  [{mode}]")
     print("Hold-out: Chicago + Miami")
     print("=" * 70)
 
@@ -84,12 +93,18 @@ def main(input_path: str, output_path: str, model_dir: str = None):
     print(f"\nLoading: {input_path}")
     df, numeric_feats = build_v5_features(input_path)
 
+    if no_confidence:
+        dropped = [f for f in CONFIDENCE_FEATURES if f in numeric_feats]
+        numeric_feats = [f for f in numeric_feats if f not in CONFIDENCE_FEATURES]
+        print(f"\n  Dropped {len(dropped)} confidence features: {dropped}")
+
     holdout_mask = df["source_dataset"].isin(HOLDOUT_CITIES)
     train_df     = df[~holdout_mask].reset_index(drop=True)
     test_df      = df[holdout_mask].reset_index(drop=True)
 
     print(f"\n  Train: {len(train_df):,} rows  ({train_df['open'].mean():.1%} open)")
     print(f"  Test:  {len(test_df):,} rows  ({test_df['open'].mean():.1%} open)")
+    print(f"  Features: {len(numeric_feats)} numeric + category_primary")
 
     all_feat_cols = numeric_feats + ["category_primary"]
     for split in [train_df, test_df]:
@@ -197,6 +212,11 @@ if __name__ == "__main__":
         default="models",
         help="Directory to save trained model files (default: models/). Pass empty string to skip.",
     )
+    parser.add_argument(
+        "--no-confidence", action="store_true",
+        help="Drop all base_confidence features (base_conf, base_conf_sq, "
+             "base_conf_x_stale, loss_x_low_conf, stale_x_low_conf) before training.",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
@@ -204,4 +224,5 @@ if __name__ == "__main__":
         print(f"    Run from the project root (StatusNow/).")
         sys.exit(1)
 
-    main(args.input, args.output, model_dir=args.model_dir or None)
+    main(args.input, args.output, model_dir=args.model_dir or None,
+         no_confidence=args.no_confidence)
