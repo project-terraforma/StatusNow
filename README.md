@@ -134,37 +134,98 @@ StatusNow/
 
 ---
 
-## Project History
+## Project History & Journey Summary
 
-### V1 — Delta Features (Baseline)
-`has_gained_social` (r=+0.26) was the strongest single predictor. `has_any_loss` was a reliable closure signal. **67.3% Balanced Accuracy.**
+This section chronicles our progress from the initial baseline to the current pipeline.
 
-### V2 — Interaction Features
-Added zombie score (high sources + stale = database purgatory), category churn risk, and PCA over recency. **70.65%.**
+### Phase 1: V1 Delta Features (Baseline)
 
-### V3 — Label Refinement
-Dynamic label refinement via 5-fold CV flagged 65 samples (2.2%) as likely human-labelling errors. Removing them: **72.09%.**
+- **Goal**: Establish a baseline using "Delta Features" (comparing historical baseline vs current data).
+- **Method**: Calculated net change in websites, socials, and phones.
+- **Key Insight**: `has_gained_social` (r=+0.26) was the strongest single predictor. `has_any_loss` (r=-0.17) was a reliable closure signal.
+- **Result**: 67.3% Balanced Accuracy. Knowing _that_ something changed was good, but not enough.
 
-### V4 — Overture Truth Dataset + 12-City Scale
-Replaced manually-labelled data with Overture churn labels (presence diff between Jan and Feb 2026 releases). Expanded from NYC to 12 cities (123k samples). Data scale dominated — 12k→123k gained +8.7 pp; HPO gained ~0.1 pp. **89.18% CV.**
+### Phase 2: V2 Advanced Engineering (Context)
 
-### V5 — Full Leakage Audit + Geographic Hold-Out
-- `confidence` NaN-fill removed (93.7% of closed had null→0, near-perfect proxy).
-- `category_churn_risk` removed (globally computed from all labels, leaked into CV folds).
-- Chicago + Miami held out for honest geographic evaluation.
-- Result: **89.41% hold-out balanced accuracy** (CB+LGBM, w=0.7, t=0.52).
+- **Goal**: Capture nuance with Interaction Features and PCA.
+- **Innovation**:
+  - **Zombie Score**: Identified places with many sources but stale data ("Database Purgatory").
+  - **Category Risk**: Modeled that gas stations close less often (10% churn) than boutiques (45% churn).
+  - **PCA**: Reduced redundancy between correlated recency features (98% variance explained).
+- **Result**: 70.65% Balanced Accuracy. Temporal context ("when did it change?") proved critical.
 
-### V7 — 3rd Release + Trajectory Features
-- Added March 2026 Overture release → 2 consecutive pairs → trajectory features activated (`releases_seen`, `consecutive_present`, `pre_closure_loss`, `social_trend`, `website_trend`).
-- Fixed double-encoded JSON bug that was silently zeroing all digital presence and recency features.
-- Fixed `releases_seen` construction leak.
-- Fixed COALESCE-induced staleness asymmetry.
-- Result: **97% hold-out balanced accuracy** (note: subsequent audit found remaining leaks in PCA and hold-out optimisation — see V8).
+### Phase 3: V3 Label Refinement (Noise Reduction)
 
-### V8 — HQC Labels + Remaining Leak Fixes (Current)
-- Closed labels tightened to HQC definition (2-release presence, gone in third). 142,931 confirmed churners vs old 3k cap.
-- Dataset rebalanced to 60/40 globally; 357k rows total.
-- PCA fitted on training rows only.
-- Ensemble search moved to OOF predictions; hold-out is now a clean evaluation.
-- Per-pair reference date for staleness; digital presence from base snapshot for all places.
-- LightGBM now receives encoded category feature.
+- **Goal**: Tackle label noise in the manually labeled dataset.
+- **Innovation**: "Dynamic Label Refinement" using 5-fold cross-validation.
+- **Findings**: Identified 65 samples (2.2%) where the model was >90% confident the human label was wrong.
+- **Result**: Removing these likely errors boosted accuracy to **72.09%**.
+
+### Phase 4: Overture Truth Dataset (The 93% Breakthrough)
+
+- **Goal**: Validate concepts on a larger, cleaner, ground-truth dataset.
+- **Replication Method** (Script: `scripts/data_processing/build_truth_dataset.py`):
+  1. **Fetch Data**: Used `fetch_overture_data.py` to download places from Overture S3 (Jan 2026 vs Feb 2026) for NYC BBox.
+  2. **Define Closed**: A place is considered closed if:
+     - It existed in the _Previous_ release but is missing ID in the _Current_ release (churned).
+     - OR it exists in _Current_ but explicitly has `operating_status = 'closed'`.
+  3. **Define Open**: Exists in _Current_ and `operating_status != 'closed'`.
+  4. **Balance**: Downsampled to 3k Open / 3k Closed to match Season 2 distribution.
+- **Result**: **92.87% Balanced Accuracy**.
+- **Major Lesson**: The V3 features were highly effective, but the original dataset's noise and size were holding them back.
+- **Warning**: We discovered a massive performance gap between **Brands (97% Accuracy)** and **Small Businesses (67% Accuracy)**, suggesting future work should treat them as separate problems.
+
+### Phase 5: San Francisco Expansion (Generalization)
+
+- **Goal**: Validate if the model works beyond NYC.
+- **Method**: Replicated the pipeline for San Francisco (SF) and created a combined dataset.
+- **Results**:
+  - **SF Accuracy**: **91.39%** (despite fewer closed samples).
+  - **Combined Model**: **85.21%** Balanced Accuracy on 18,619 samples.
+- **Key Insight**: The initial 95% result was inflated by a data leak (Confidence score). After fixing it, the model stabilized at ~85%, and uniquely, the **Brand Gap disappeared** (Brands vs Non-Brands now perform equally).
+
+### Phase 6: V4 Research — Leakage Audit + 12-City Expansion (Mar 2026)
+
+- **Goal**: Improve from 85% → 90% Balanced Accuracy.
+- **Leakage Discovery**: `processed_for_ml_testing.parquet` was built with `confidence = 0` for 3,000 churned NYC places (NaN-fill bug). This gave the model a near-perfect closed signal — true leak-free baseline was **80.5%**. `category_churn_risk` (computed globally from labels) also contributed minor leakage.
+- **Strategy**: Scale the dataset dramatically across diverse cities using Overture S3.
+- **Data Expansion**: Fetched 10 new US cities (Chicago, LA, Houston, Phoenix, Philadelphia, Seattle, Denver, Boston, Miami, Atlanta) → **123,082 samples** from 12 cities.
+- **V4 Features**: Extended to **95 features** — added identity-change signals (`name_changed`, `website_domain_changed`, `identity_change_score`), richer per-channel gain/loss flags, and interaction terms.
+- **Results** (leaky CV): CatBoost + LightGBM ensemble: **89.18%**
+- **Key Insight**: More data >> better models. HPO added only ~0.1 pp; going from 12k → 123k added ~8.7 pp.
+
+### Phase 7: V5 Research — Full Leakage Fix + Geographic Hold-Out (Mar 2026)
+
+- **Goal**: Produce an honest, production-grade evaluation with all leakages fixed.
+- **Leakage Audit**:
+  1. `confidence` NaN-fill: churned places (93.7% of closed) had `confidence=null` → filled with 0 → near-perfect closed signal. **Fix**: use `base_confidence` (Jan 2026 value) only. Drop `delta_confidence` and `confidence_momentum`.
+  2. `category_churn_risk` computed globally from all 123k labels before CV → 0.50 correlation with target. **Fix**: removed; replaced with `category_primary` as CatBoost native categorical feature (fold-safe internal target encoding).
+  3. Evaluation: all CV was on the same 12 cities. **Fix**: geographic hold-out — Chicago + Miami held out completely.
+- **Data Architecture Insight**: In the 2-release dataset (`Jan 2026 = base`, `Feb 2026 = current`), churned places (closed by disappearing) have `current = COALESCE(null, prev) = prev`, so **all delta features are 0 by construction** for 93.7% of closed places. This is a structural limitation of 2-release data. A 3rd release would provide legitimate pre-closure deltas.
+- **Operating Status Note**: `operating_status = 'closed'` appears in only 1–2 places per city in current Overture data. Closures are expressed as **churning** (disappearance between releases), not explicit status flags. Using operating_status alone as the closed label is not viable with current Overture data.
+- **Results**: CB+LGBM ensemble on Chicago + Miami hold-out: **89.41%** (w_CB=0.7, thresh=0.52).
+- **Scripts**: `scripts/research/process_data_v5.py`, `scripts/research/v5_holdout_eval.py`.
+
+### Phase 8: V7 — 3rd Release, Trajectory Features, Full Leak Audit (Mar 2026)
+
+- **Goal**: Break the 2-release structural ceiling (all delta features = 0 for churned places) and fix remaining data leaks.
+- **3rd Release**: Added Overture `2026-03-18.0` for all 12 cities via `scripts/data_processing/build_release_files.py`. With 3 releases → 2 consecutive comparison pairs → trajectory features activated.
+- **Leak Fixes**:
+  1. **Double-encoded JSON** (`to_json()` on VARCHAR columns): all digital presence, sources, and recency features were silently zeroed out. Fix: `CAST(AS VARCHAR)` in step1 SQL.
+  2. **Constructed `releases_seen` leak**: only future churners were force-included in pair 0's open set, making `releases_seen=2` a near-perfect proxy for `label=0`. Fix: also anchor a matching sample of future non-churners so `releases_seen=2` occurs for both classes.
+  3. **COALESCE-induced staleness leak**: `log_days` was computed from the COALESCED `sources` column. Closed places (sources from prior release) appeared more stale than open places (sources from current release) by construction. Fix: compute staleness from `base_sources` for all places.
+  4. **Overture `confidence` removed**: 5 confidence-derived features dropped (external quality signal with unclear provenance).
+- **City column propagated**: `_city` from release parquets flows through step1 → step2 → step3, enabling city-name holdout (default: Chicago + Miami).
+- **Results**: CatBoost-C: CV **97.15%**, hold-out **97.00%**. Top features: `recency_spread` (19.6%), `zombie_score` (16.7%), `recency_pca` (11.6%), `log_days` (9.3%).
+- **Key Insight**: The 89.41% V5 result was partially suppressed by silently zeroed features (the JSON double-encoding bug was present from the start). The true signal in Overture recency metadata is much stronger than previously measured.
+
+### Phase 9: V8 — HQC Labels + Remaining Leak Fixes (Mar 2026, Current)
+
+- **Goal**: Tighten the closed label definition, fix remaining leaks found in a full audit, and improve dataset balance.
+- **HQC Closed Labels**: Redefined closed as places present in **2 consecutive past releases and absent in the next** — confirmed churners with trajectory history. This yields 142,931 high-quality closed examples vs. the old 3,000/pair cap that discarded 97% of available signal. Dataset rebalanced globally to 60/40 (357k rows total).
+- **Leak Fixes**:
+  1. **PCA fitted on full dataset**: `recency_pca` was computed before the train/test split, so hold-out data influenced the PCA direction. Fix: PCA now fit on training rows only in step3 after the split; `days_latest`/`days_avg` passed as passthrough columns from step2.
+  2. **Hold-out used for optimisation**: ensemble weights and threshold were searched over 918 combinations against `y_test`, then reported as the hold-out accuracy — a form of test-set overfitting. Fix: weights and threshold now chosen via OOF predictions (`cross_val_predict` on `y_train`); hold-out used only for final unbiased reporting.
+  3. **Single reference date across pairs**: staleness was computed against the newest release date for all rows, making pair-0 places appear ~28 days older than pair-1 places with identical update dates. Fix: recency computed per `release_date_current` group.
+  4. **Digital presence used post-event values**: `has_website`, `num_socials`, etc. used COALESCED (R_{i+1}) data for open places but R_i data for churned places — an asymmetric measurement window. Fix: all presence features now use `base_*` columns (R_i) for both classes.
+  5. **LightGBM missing category feature**: LGBM received numeric features only, missing the 7.7%-importance `category_primary`. Fix: `LabelEncoder` fitted on training rows; LGBM receives `category_encoded`.
