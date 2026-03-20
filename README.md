@@ -136,7 +136,8 @@ StatusNow/
 │   ├── experiments/
 │   │   ├── v5_train_best.py             ← Train best model, export predictions
 │   │   ├── v5_full_benchmark.py         ← Full CV + all models + ensemble search
-│   │   └── v6_enrichment_experiment.py
+│   │   ├── v6_enrichment_experiment.py
+│   │   └── exp_predictive_labels.py     ← R2-oracle experiment (see below)
 │   │
 │   ├── agent/                           ← V6 AI agent layer
 │   │   ├── main.py
@@ -246,6 +247,21 @@ This section chronicles our progress from the initial baseline to the current pi
 - **City column propagated**: `_city` from release parquets flows through step1 → step2 → step3, enabling city-name holdout (default: Chicago + Miami).
 - **Results**: CatBoost-C: CV **97.15%**, hold-out **97.00%**. Top features: `recency_spread` (19.6%), `zombie_score` (16.7%), `recency_pca` (11.6%), `log_days` (9.3%).
 - **Key Insight**: The 89.41% V5 result was partially suppressed by silently zeroed features (the JSON double-encoding bug was present from the start). The true signal in Overture recency metadata is much stronger than previously measured.
+
+### Phase 10: R2-Oracle Experiment — Genuine Signal Validation (Mar 2026)
+
+- **Question**: Is the model learning real closure signals, or just detecting "this place is absent from the latest release?"
+- **Setup**: Features built from R0→R1 window only (Jan→Feb). R2 (Mar) used **exclusively as a label oracle** — label=1 if present in R2, label=0 (HQC) if in R0+R1 but not R2. R2 data never touches the feature matrix.
+- **Result**:
+
+| Metric | Current Pipeline (R2 in features) | Experiment (R2 labels only) | Delta |
+|---|---|---|---|
+| Balanced Accuracy | **89.29%** | 71.02% | −18.3 pp |
+| AUC | **95.30%** | 80.28% | −15.0 pp |
+
+- **Conclusion**: The significant drop confirms the model is **not** simply memorising R2 presence. Genuine predictive signals exist in the R0→R1 feature window (name changes, digital presence shifts, source volatility, recency). The additional ~18 pp in the current pipeline comes from the multi-release feature window giving the model more temporal evidence — not from target leakage. Script: `scripts/experiments/exp_predictive_labels.py`.
+
+---
 
 ### Phase 9: V8 — HQC Labels + Remaining Leak Fixes (Mar 2026, Current)
 
