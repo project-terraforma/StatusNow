@@ -2,26 +2,46 @@
 
 This project classifies whether a place (POI) is Open or Closed based on its **digital footprint** and **recency signals**.
 
-## 🚀 Current Best Model (V5 — Leak-Free + Geographic Hold-Out)
+## 🚀 Current Best Model (V7 — 3-Release Trajectory + Full Leak Audit)
 
-We have achieved **89.41% Balanced Accuracy** on a fully honest evaluation: geographic hold-out test set (Chicago + Miami never seen during training), with all known leakages fixed.
+We have achieved **97.00% Balanced Accuracy** on a fully honest evaluation: geographic hold-out test set (Chicago + Miami never seen during training), with all known data leakages fixed and trajectory features activated via a 3rd Overture release.
 
-### V5 Research Results (Mar 2026)
+### V7 Research Results (Mar 2026)
 
-> **Note on V5 Recalls**: At 89.41% Balanced Accuracy, the V5 model correctly identifies **93.7% of all closed businesses** (Closed Recall) and **84.8% of all open businesses** (Open Recall) using geographic hold-out evaluation.
+**V7 Evaluation Results (Chicago + Miami Hold-out):**
 
-**V5 Evaluation Results (Chicago + Miami Hold-out):**
+| Model                           | CV BalAcc | Hold-out BalAcc | Notes                  |
+| :------------------------------ | :-------- | :-------------- | :--------------------- |
+| CatBoost-A (2000i, d8, lr=0.03) | 96.88%    | 96.86%          |                        |
+| CatBoost-B (1500i, d7, lr=0.05) | 96.74%    | 96.80%          |                        |
+| CatBoost-C (1000i, d6, lr=0.05) | 97.15%    | **97.00%**      | Best CV                |
+| LightGBM-A (1500, d8)           | 93.61%    | 93.07%          |                        |
+| CatBoost ensemble (avg)         | —         | 96.85%          |                        |
+| **CB+LGBM (w=0.8/0.2, t=0.48)** | **—**     | **96.80%**      |                        |
 
-| Model                           | CV BalAcc | Hold-out BalAcc | AUC    | Closed Recall | Open Recall | Notes                  |
-| :------------------------------ | :-------- | :-------------- | :----- | :------------ | :---------- | :--------------------- |
-| CatBoost-A (2000i, d8, lr=0.03) | 88.31%    | 89.29%          | 0.9582 | 93.0%         | 85.6%       |                        |
-| CatBoost-B (1500i, d7, lr=0.05) | 88.20%    | 89.33%          | 0.9582 | 92.8%         | 85.6%       |                        |
-| CatBoost-C (1000i, d6, lr=0.05) | 88.41%    | 89.38%          | 0.9578 | 93.7%         | 84.8%       |                        |
-| LightGBM-A (1500, d8)           | 84.50%    | 85.59%          | 0.9413 | 91.4%         | 79.2%       |                        |
-| CatBoost ensemble (avg)         | —         | 89.34%          | —      | —             | —           |                        |
-| **CB+LGBM (w=0.7/0.3, t=0.52)** | **—**     | **89.41%**      | **—**  | **~93.7%**    | **~84.8%**  | **Best — report this** |
+**V7 Top Features (CatBoost-C):**
 
-**V5 Leakage Fixes:**
+| Rank | Feature | Importance | Description |
+|------|---------|-----------|-------------|
+| 1 | `recency_spread` | 19.6% | Range between oldest and newest source update times |
+| 2 | `zombie_score` | 16.7% | Source count / avg staleness ("database purgatory") |
+| 3 | `recency_pca` | 11.6% | PCA of recency metrics |
+| 4 | `log_days` | 9.3% | Days since last source update (from base snapshot, leak-free) |
+| 5 | `category_primary` | 7.7% | Business category (CatBoost native encoding) |
+| 6 | `name_length` | 6.7% | Length of place name |
+| 7 | `releases_seen` | 6.6% | How many releases this place appeared in |
+| 8 | `consecutive_present` | 4.1% | Longest consecutive run of appearances |
+
+**V7 Leakage Fixes (on top of V5):**
+
+| Issue | Root Cause | Fix Applied |
+| :---- | :--------- | :---------- |
+| Double-encoded JSON | `to_json()` on already-string columns zeroed out all digital presence, sources, and recency | Switched to `CAST(AS VARCHAR)` in step1 SQL |
+| `releases_seen` / `consecutive_present` constructed leak | Only future churners were anchored into pair 0's open set → `releases_seen=2` was a perfect proxy for `label=0` | Also anchor a matching sample of future non-churners so `releases_seen=2` appears for both open and closed places |
+| COALESCE-induced staleness leak | `log_days` computed from COALESCED `sources` → closed places showed artificially older timestamps (from prior release) vs open places (current release) | Compute staleness from `base_sources` for all places |
+| Overture `confidence` feature | Overture internal quality signal may introduce dependency on their model | Removed `base_conf`, `base_conf_sq`, `base_conf_x_stale`, `loss_x_low_conf`, `stale_x_low_conf` (5 features dropped) |
+
+**V5 Leakage Fixes (still applied):**
 
 | Issue                 | Root Cause                                               | Fix Applied                                                                |
 | :-------------------- | :------------------------------------------------------- | :------------------------------------------------------------------------- |
@@ -88,20 +108,18 @@ The V5 model uses **63+ engineered features**. Below are the most critical ones:
 If you have access to Overture Maps historical releases and want to train or retrain the model with more data, use the self-contained pipeline:
 
 ```bash
-# 1. Drop your Overture parquet releases into overture_releases/
-#    Files must be named with a date prefix: YYYY-MM-DD.N_<label>.parquet
-#    Example:
-#      overture_releases/2025-12-16.0_places.parquet
-#      overture_releases/2026-01-21.0_places.parquet
-#      overture_releases/2026-02-18.0_places.parquet
+# 1. Build the combined multi-city release parquets (one-time setup)
+#    Combines per-city files for Jan/Feb and fetches Mar 2026 from S3:
+python scripts/data_processing/build_release_files.py
 
 # 2. Run the pipeline (builds training data, engineers features, trains model)
+#    Default holdout: Chicago + Miami for honest geographic evaluation
 python pipeline/run_pipeline.py
 
 # Trained models are saved to pipeline_output/models/
 ```
 
-**With 3+ releases**, the pipeline activates trajectory features (`pre_closure_loss`, `social_trend`, `releases_seen`, etc.) that directly address the main V5 limitation — churned places have all delta features = 0 in a 2-release dataset.
+**With 3+ releases**, the pipeline activates trajectory features (`pre_closure_loss`, `social_trend`, `releases_seen`, `consecutive_present`, etc.) that look at a place's behaviour *before* disappearance — directly addressing the 2-release structural limitation where all delta features are 0 for churned places by construction.
 
 See [`pipeline/README.md`](pipeline/README.md) for the full guide, and [`overture_releases/README.md`](overture_releases/README.md) for the file naming convention.
 
@@ -184,6 +202,7 @@ StatusNow/
 │
 ├── scripts/
 │   ├── data_processing/        ← Reusable data utilities
+│   │   ├── build_release_files.py       ← Build overture_releases/ parquets (one-time setup)
 │   │   ├── fetch_overture_expanded.py   ← Fetch any city from Overture S3
 │   │   ├── build_truth_expanded.py      ← Build + merge multi-city truth datasets
 │   │   └── merge_cities.py              ← Merge city parquet files
@@ -293,3 +312,16 @@ This section chronicles our progress from the initial baseline to the final V3 b
 - **Operating Status Note**: `operating_status = 'closed'` appears in only 1–2 places per city in current Overture data. Closures are expressed as **churning** (disappearance between releases), not explicit status flags. Using operating_status alone as the closed label is not viable with current Overture data.
 - **Results**: CB+LGBM ensemble on Chicago + Miami hold-out: **89.41%** (w_CB=0.7, thresh=0.52).
 - **Scripts**: `scripts/research/process_data_v5.py`, `scripts/research/v5_holdout_eval.py`.
+
+### Phase 8: V7 — 3rd Release, Trajectory Features, Full Leak Audit (Mar 2026)
+
+- **Goal**: Break the 2-release structural ceiling (all delta features = 0 for churned places) and fix remaining data leaks.
+- **3rd Release**: Added Overture `2026-03-18.0` for all 12 cities via `scripts/data_processing/build_release_files.py`. With 3 releases → 2 consecutive comparison pairs → trajectory features activated.
+- **Leak Fixes**:
+  1. **Double-encoded JSON** (`to_json()` on VARCHAR columns): all digital presence, sources, and recency features were silently zeroed out. Fix: `CAST(AS VARCHAR)` in step1 SQL.
+  2. **Constructed `releases_seen` leak**: only future churners were force-included in pair 0's open set, making `releases_seen=2` a near-perfect proxy for `label=0`. Fix: also anchor a matching sample of future non-churners so `releases_seen=2` occurs for both classes.
+  3. **COALESCE-induced staleness leak**: `log_days` was computed from the COALESCED `sources` column. Closed places (sources from prior release) appeared more stale than open places (sources from current release) by construction. Fix: compute staleness from `base_sources` for all places.
+  4. **Overture `confidence` removed**: 5 confidence-derived features dropped (external quality signal with unclear provenance).
+- **City column propagated**: `_city` from release parquets flows through step1 → step2 → step3, enabling city-name holdout (default: Chicago + Miami).
+- **Results**: CatBoost-C: CV **97.15%**, hold-out **97.00%**. Top features: `recency_spread` (19.6%), `zombie_score` (16.7%), `recency_pca` (11.6%), `log_days` (9.3%).
+- **Key Insight**: The 89.41% V5 result was partially suppressed by silently zeroed features (the JSON double-encoding bug was present from the start). The true signal in Overture recency metadata is much stronger than previously measured.
