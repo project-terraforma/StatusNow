@@ -4,6 +4,34 @@ Classifies whether a POI is **Open** or **Closed** based on its digital footprin
 
 ---
 
+## Latest Model Results (V8 — Chicago + Miami Hold-out)
+
+| Metric | Open | Closed |
+|---|---|---|
+| **Balanced Accuracy** | **89.29%** | |
+| **AUC** | **95.30%** | |
+| Precision | 99.2% | 75.9% |
+| Recall | 79.5% | 99.0% |
+
+_Evaluated on 46,907 hold-out rows (Chicago + Miami, never seen during training). Threshold = 0.50. Ensemble: CatBoost-A × 0.7 + LightGBM-A × 0.3._
+
+**Top Features (CatBoost-A):**
+
+| Rank | Feature | Importance | Description |
+|---|---|---|---|
+| 1 | `recency_spread` | 29.8% | Range between oldest and newest source update timestamps |
+| 2 | `recency_pca` | 21.8% | PCA of recency metrics (fit on training rows only) |
+| 3 | `zombie_score` | 19.7% | Source count / avg staleness — "database purgatory" signal |
+| 4 | `identity_change_score` | 12.8% | Sum of name, category, and address changes |
+| 5 | `is_brand` | 2.6% | Place matches a known brand chain |
+| 6 | `total_digital` | 2.3% | Count of distinct digital presence types |
+| 7 | `category_primary` | 2.2% | Business category (CatBoost native encoding) |
+| 8 | `consecutive_present` | 1.6% | Longest consecutive run of release appearances |
+| 9 | `has_phone` | 1.6% | Phone number present in base snapshot |
+| 10 | `releases_seen` | 1.4% | Number of releases this place appeared in before closure |
+
+---
+
 ## Current Pipeline (V8 — HQC Labels + Full Leak Audit)
 
 ### What's New
