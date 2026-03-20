@@ -11,7 +11,6 @@ Feature sets
 ------------
 
 All feature sets from V5 are preserved (leak-free):
-  • Confidence       — base_confidence ONLY (no delta_confidence leakage)
   • Digital presence — websites, socials, phones, emails counts & flags
   • Brand
   • Delta features   — change between base and current snapshot
@@ -51,6 +50,7 @@ import json
 import os
 import sys
 import warnings
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -279,8 +279,8 @@ def _compute_trajectory_features(df: pd.DataFrame) -> pd.DataFrame:
 def build_features(
     input_path:  str,
     output_path: str,
-    reference_date: datetime | None = None,
-) -> tuple[pd.DataFrame, list[str]]:
+    reference_date: Optional[datetime] = None,
+) -> Tuple[pd.DataFrame, List[str]]:
     """
     Build the full feature set from the raw training data.
 
@@ -343,7 +343,9 @@ def build_features(
     df["is_cross_verified"] = (df["num_sources"] > 1).astype(int)
     df["log_num_sources"]   = np.log1p(df["num_sources"])
 
-    rec = df["sources"].apply(lambda x: _recency(x, reference_date))
+    # Use base_sources (not COALESCED sources) so staleness measures the last-known
+    # state before the prediction window — identical for both open and closed places.
+    rec = df["base_sources"].apply(lambda x: _recency(x, reference_date))
     df["days_latest"] = rec.apply(lambda x: x[0])
     df["days_oldest"] = rec.apply(lambda x: x[1])
     df["days_avg"]    = rec.apply(lambda x: x[2])
@@ -377,14 +379,7 @@ def build_features(
         ) else 1
     )
 
-    # ── 4. CONFIDENCE — base_confidence ONLY (V5 leak fix) ───────────────────
-    print("  confidence (base only — leak-free) …")
-    df["base_conf"]     = pd.to_numeric(df["base_confidence"], errors="coerce").fillna(0)
-    df["base_conf_sq"]  = df["base_conf"] ** 2
-    # Will be overwritten after staleness is computed
-    df["base_conf_x_stale"] = df["base_conf"]
-
-    # ── 5. CATEGORIES ────────────────────────────────────────────────────────
+    # ── 4. CATEGORIES ────────────────────────────────────────────────────────
     print("  categories …")
     df["category_primary"] = df["categories"].apply(_primary)
     df["category_primary"] = df["category_primary"].fillna("unknown")
@@ -480,9 +475,6 @@ def build_features(
     pca = PCA(n_components=1)
     df["recency_pca"] = pca.fit_transform(rec_mat).flatten()
 
-    # Overwrite now that staleness flags exist
-    df["base_conf_x_stale"] = df["base_conf"] * df["is_stale_1yr"]
-
     # ── 9. INTERACTION FEATURES ──────────────────────────────────────────────
     print("  interaction features …")
     df["zombie_score"]          = df["num_sources"] / (df["days_avg"] + 1)
@@ -499,8 +491,6 @@ def build_features(
     df["stale_x_loss_x_nonbrand"] = (
         df["is_stale_6mo"] * df["has_any_loss"] * (1 - df["is_brand"])
     )
-    df["loss_x_low_conf"]  = df["has_any_loss"]  * (df["base_conf"] < 0.5).astype(int)
-    df["stale_x_low_conf"] = df["is_stale_1yr"]  * (df["base_conf"] < 0.5).astype(int)
     df["multi_signal_risk"] = (
         df["has_any_loss"] + df["is_stale_1yr"] +
         df["name_changed"] + df["cat_changed"]
@@ -516,8 +506,6 @@ def build_features(
     print("  assembling final feature matrix …")
 
     numeric_features = [
-        # Confidence (base only — leak-free)
-        "base_conf", "base_conf_sq", "base_conf_x_stale",
         # Brand & sources
         "is_brand", "num_sources", "log_num_sources",
         "source_has_msft", "is_cross_verified",
@@ -547,7 +535,6 @@ def build_features(
         "brand_x_name_change", "nonbrand_x_name_change",
         "recency_x_name_change", "recency_x_cat_change",
         "source_loss_x_stale", "stale_x_loss_x_nonbrand",
-        "loss_x_low_conf", "stale_x_low_conf",
         # Identity changes
         "name_changed", "cat_changed",
         "website_domain_changed", "address_changed",
@@ -566,7 +553,7 @@ def build_features(
     # metadata for hold-out splitting and inspection
     keep_cols = (
         numeric_features +
-        ["category_primary", "release_pair", "release_date_base",
+        ["category_primary", "city", "release_pair", "release_date_base",
          "release_date_current", "release_index", "label"]
     )
     keep_cols = [c for c in keep_cols if c in df.columns]

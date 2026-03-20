@@ -81,10 +81,10 @@ def main() -> None:
     )
     # Step 3 options
     parser.add_argument(
-        "--holdout-cities", nargs="+", default=None, metavar="DATE",
+        "--holdout-cities", nargs="+", default=["chicago", "miami"], metavar="CITY",
         help=(
-            "release_date_current values to hold out for honest geographic evaluation. "
-            "Example: --holdout-cities 2026-02-18.0"
+            "City names to hold out for honest geographic evaluation. "
+            "Default: chicago miami. Example: --holdout-cities chicago miami boston"
         ),
     )
     parser.add_argument(

@@ -94,7 +94,7 @@ def _print_bar(value: float, max_value: float, width: int = 35) -> str:
 def train(
     input_path:      str   = "pipeline_output/02_features.parquet",
     output_dir:      str   = "pipeline_output/models",
-    holdout_cities:  list[str] | None = None,
+    holdout_cities:  "list[str] | None" = None,
     cv_folds:        int   = 5,
     seed:            int   = 42,
 ) -> dict:
@@ -123,7 +123,7 @@ def train(
     print(f"\n  Loaded {len(df):,} rows | {df.shape[1]} columns")
 
     # Identify feature columns
-    non_feat_cols = {"open", "release_pair", "release_date_base",
+    non_feat_cols = {"open", "city", "release_pair", "release_date_base",
                      "release_date_current", "release_index", "category_primary"}
     numeric_feats = [c for c in df.columns if c not in non_feat_cols]
     all_feat_cols = numeric_feats + ["category_primary"]
@@ -133,10 +133,12 @@ def train(
 
     # ── Train / hold-out split ────────────────────────────────────────────────
     if holdout_cities:
-        mask = df["release_date_current"].isin(holdout_cities)
+        # Hold out by city name (from _city column propagated through step1)
+        city_col = "city" if "city" in df.columns else "release_date_current"
+        mask = df[city_col].isin(holdout_cities)
         train_df = df[~mask].reset_index(drop=True)
         test_df  = df[mask].reset_index(drop=True)
-        print(f"\n  Hold-out cities:  {holdout_cities}")
+        print(f"\n  Hold-out cities:  {holdout_cities}  (filtering on '{city_col}')")
         print(f"  Train: {len(train_df):,} rows ({train_df['open'].mean():.1%} open)")
         print(f"  Test:  {len(test_df):,}  rows ({test_df['open'].mean():.1%} open)")
     else:

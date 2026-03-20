@@ -57,7 +57,7 @@ RELEASE_PATTERN = re.compile(
 )
 
 
-def _discover_releases(releases_dir: str) -> list[tuple[str, str]]:
+def _discover_releases(releases_dir: str) -> list:
     """
     Return sorted list of (release_tag, abs_filepath) tuples.
     Files must match YYYY-MM-DD.N<anything>.parquet
@@ -90,6 +90,44 @@ def _to_json_str(x):
     return str(x)
 
 
+def _get_churned_ids(path_base: str, path_curr: str) -> set:
+    """Return IDs present in base but absent from curr (will be label=0 for this pair)."""
+    con = duckdb.connect()
+    try:
+        result = con.execute(f"""
+            SELECT base.id
+            FROM read_parquet('{path_base}') AS base
+            LEFT JOIN read_parquet('{path_curr}') AS curr ON base.id = curr.id
+            WHERE curr.id IS NULL
+        """).df()
+    finally:
+        con.close()
+    return set(result["id"].tolist())
+
+
+def _get_open_sample_ids(path_base: str, path_curr: str, n: int, seed: int = 42) -> set:
+    """Return a random sample of IDs that are OPEN (present in both base and curr)."""
+    con = duckdb.connect()
+    try:
+        result = con.execute(f"""
+            SELECT curr.id
+            FROM read_parquet('{path_curr}') AS curr
+            INNER JOIN read_parquet('{path_base}') AS base ON base.id = curr.id
+            USING SAMPLE {n} ROWS (bernoulli, {seed})
+        """).df()
+    except Exception:
+        # Fallback: no USING SAMPLE, sample in pandas
+        result = con.execute(f"""
+            SELECT curr.id
+            FROM read_parquet('{path_curr}') AS curr
+            INNER JOIN read_parquet('{path_base}') AS base ON base.id = curr.id
+        """).df()
+        result = result.sample(min(n, len(result)), random_state=seed)
+    finally:
+        con.close()
+    return set(result["id"].tolist())
+
+
 def _build_pair(
     tag_base: str,
     path_base: str,
@@ -99,7 +137,8 @@ def _build_pair(
     max_open: int,
     max_closed: int,
     no_downsample: bool,
-) -> pd.DataFrame | None:
+    must_include_ids: "set | None" = None,
+) -> "pd.DataFrame | None":
     """
     Join two consecutive releases and produce labelled rows.
 
@@ -129,33 +168,35 @@ def _build_pair(
         WITH base AS (
             SELECT
                 id,
-                to_json(names)      AS names,
-                to_json(categories) AS categories,
-                to_json(websites)   AS websites,
-                to_json(socials)    AS socials,
-                to_json(phones)     AS phones,
-                to_json(emails)     AS emails,
-                to_json(addresses)  AS addresses,
-                to_json(brand)      AS brand,
-                to_json(sources)    AS sources,
-                CAST(confidence AS DOUBLE) AS confidence,
-                try_cast(operating_status AS VARCHAR) AS operating_status
+                CAST(names      AS VARCHAR) AS names,
+                CAST(categories AS VARCHAR) AS categories,
+                CAST(websites   AS VARCHAR) AS websites,
+                CAST(socials    AS VARCHAR) AS socials,
+                CAST(phones     AS VARCHAR) AS phones,
+                CAST(emails     AS VARCHAR) AS emails,
+                CAST(addresses  AS VARCHAR) AS addresses,
+                CAST(brand      AS VARCHAR) AS brand,
+                CAST(sources    AS VARCHAR) AS sources,
+                CAST(confidence AS DOUBLE)  AS confidence,
+                try_cast(operating_status AS VARCHAR) AS operating_status,
+                CAST(_city      AS VARCHAR) AS city
             FROM read_parquet('{path_base}')
         ),
         curr AS (
             SELECT
                 id,
-                to_json(names)      AS names,
-                to_json(categories) AS categories,
-                to_json(websites)   AS websites,
-                to_json(socials)    AS socials,
-                to_json(phones)     AS phones,
-                to_json(emails)     AS emails,
-                to_json(addresses)  AS addresses,
-                to_json(brand)      AS brand,
-                to_json(sources)    AS sources,
-                CAST(confidence AS DOUBLE) AS confidence,
-                try_cast(operating_status AS VARCHAR) AS operating_status
+                CAST(names      AS VARCHAR) AS names,
+                CAST(categories AS VARCHAR) AS categories,
+                CAST(websites   AS VARCHAR) AS websites,
+                CAST(socials    AS VARCHAR) AS socials,
+                CAST(phones     AS VARCHAR) AS phones,
+                CAST(emails     AS VARCHAR) AS emails,
+                CAST(addresses  AS VARCHAR) AS addresses,
+                CAST(brand      AS VARCHAR) AS brand,
+                CAST(sources    AS VARCHAR) AS sources,
+                CAST(confidence AS DOUBLE)  AS confidence,
+                try_cast(operating_status AS VARCHAR) AS operating_status,
+                CAST(_city      AS VARCHAR) AS city
             FROM read_parquet('{path_curr}')
         )
         SELECT
@@ -171,6 +212,7 @@ def _build_pair(
             COALESCE(curr.brand,      base.brand)       AS brand,
             COALESCE(curr.sources,    base.sources)     AS sources,
             curr.confidence                             AS confidence,
+            COALESCE(curr.city,       base.city)        AS city,
 
             -- Previous / baseline snapshot
             base.id         AS base_id,
@@ -215,8 +257,18 @@ def _build_pair(
         open_df   = df[df["label"] == 1]
         closed_df = df[df["label"] == 0]
 
-        if len(open_df) > max_open:
+        if must_include_ids and len(open_df) > max_open:
+            # Always keep future churners so trajectory features can look back
+            must_open  = open_df[open_df["id"].isin(must_include_ids)]
+            rest_open  = open_df[~open_df["id"].isin(must_include_ids)]
+            n_fill = max(0, max_open - len(must_open))
+            if len(rest_open) > n_fill:
+                rest_open = rest_open.sample(n=n_fill, random_state=42)
+            open_df = pd.concat([must_open, rest_open])
+            print(f"  Future-churner anchors kept in open set: {len(must_open):,}")
+        elif len(open_df) > max_open:
             open_df = open_df.sample(n=max_open, random_state=42)
+
         if len(closed_df) > max_closed:
             closed_df = closed_df.sample(n=max_closed, random_state=42)
 
@@ -273,11 +325,27 @@ def build_training_data(
     n_pairs = len(releases) - 1
     print(f"\n  Will build {n_pairs} comparison pair(s):\n")
 
-    all_dfs: list[pd.DataFrame] = []
+    # Pre-compute IDs to anchor per pair:
+    # - churned IDs from pair i+1  → must appear as OPEN in pair i (so pre_closure_loss works)
+    # - an equal-sized open sample from pair i+1 → also anchored in pair i, so that
+    #   releases_seen=2 is NOT a pure proxy for label=0 (leak prevention)
+    anchor_ids_per_pair: list = []
+    for i in range(n_pairs):
+        _, path_base_i = releases[i]
+        _, path_curr_i = releases[i + 1]
+        churned = _get_churned_ids(path_base_i, path_curr_i)
+        open_sample = _get_open_sample_ids(path_base_i, path_curr_i, n=max_open)
+        anchor_ids_per_pair.append(churned | open_sample)
+        print(f"  Pair {i} anchors: {len(churned):,} churners + {len(open_sample):,} open = {len(churned | open_sample):,}")
+
+    all_dfs: list = []
 
     for i in range(n_pairs):
         tag_base, path_base = releases[i]
         tag_curr, path_curr = releases[i + 1]
+
+        # Anchor: force-include future churners AND a matching open sample from next pair
+        must_include = anchor_ids_per_pair[i + 1] if i + 1 < n_pairs else None
 
         df_pair = _build_pair(
             tag_base=tag_base,
@@ -288,6 +356,7 @@ def build_training_data(
             max_open=max_open,
             max_closed=max_closed,
             no_downsample=no_downsample,
+            must_include_ids=must_include,
         )
 
         if df_pair is not None:
