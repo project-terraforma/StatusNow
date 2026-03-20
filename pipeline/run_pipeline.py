@@ -19,18 +19,17 @@ Quick start (minimum setup):
 
 Options
 -------
-  --releases-dir   DIR       Overture release input folder  (default: overture_releases/)
-  --output-dir     DIR       Pipeline output folder         (default: pipeline_output/)
-  --holdout-cities DATE ...  Hold out these release dates for evaluation
-                              e.g. --holdout-cities 2026-02-18.0
-  --max-open       N         Max open samples per release pair (default: 9000)
-  --max-closed     N         Max closed samples per release pair (default: 3000)
-  --no-downsample            Use all rows (may produce very large datasets)
-  --cv-folds       N         Cross-validation folds (default: 5)
-  --seed           N         Random seed (default: 42)
-  --skip-step1               Skip data building (use existing 01_training_data_raw.parquet)
-  --skip-step2               Skip feature engineering (use existing 02_features.parquet)
-  --skip-step3               Skip training (only run steps 1 and/or 2)
+  --releases-dir      DIR        Overture release input folder  (default: overture_releases/)
+  --output-dir        DIR        Pipeline output folder         (default: pipeline_output/)
+  --holdout-cities    CITY ...   City names to hold out for evaluation (default: chicago miami)
+  --target-open-rate  N          Target open fraction 0-1 (default: 0.6 = 60/40)
+  --max-open-per-pair N          Per-pair open ceiling before global rebalance (default: 300000)
+  --no-downsample                Keep all open rows (skip global rebalance)
+  --cv-folds          N          Cross-validation folds (default: 5)
+  --seed              N          Random seed (default: 42)
+  --skip-step1                   Skip data building (use existing 01_training_data_raw.parquet)
+  --skip-step2                   Skip feature engineering (use existing 02_features.parquet)
+  --skip-step3                   Skip training (only run steps 1 and/or 2)
 """
 
 import argparse
@@ -68,16 +67,16 @@ def main() -> None:
     )
     # Step 1 options
     parser.add_argument(
-        "--max-open", type=int, default=9000,
-        help="Max open-labelled rows per release pair (default: 9000)",
+        "--target-open-rate", type=float, default=0.6,
+        help="Target open fraction after global rebalance (default: 0.6 = 60/40)",
     )
     parser.add_argument(
-        "--max-closed", type=int, default=3000,
-        help="Max closed-labelled rows per release pair (default: 3000)",
+        "--max-open-per-pair", type=int, default=300_000,
+        help="Per-pair open ceiling before global rebalance (default: 300000)",
     )
     parser.add_argument(
         "--no-downsample", action="store_true",
-        help="Disable downsampling (use all rows)",
+        help="Keep all open rows — skip global rebalance",
     )
     # Step 3 options
     parser.add_argument(
@@ -142,8 +141,8 @@ def main() -> None:
         build_training_data(
             releases_dir=args.releases_dir,
             output_dir=args.output_dir,
-            max_open=args.max_open,
-            max_closed=args.max_closed,
+            target_open_rate=args.target_open_rate,
+            max_open_per_pair=args.max_open_per_pair,
             no_downsample=args.no_downsample,
         )
         print(f"\n  ⏱️  Step 1 completed in {time.time() - t0:.1f}s")

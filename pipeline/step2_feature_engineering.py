@@ -12,10 +12,14 @@ Feature sets
 
 All feature sets from V5 are preserved (leak-free):
   • Digital presence — websites, socials, phones, emails counts & flags
+    (all measured from the BASE snapshot so both open and closed places
+     are evaluated at the same pre-window point in time)
   • Brand
   • Delta features   — change between base and current snapshot
   • Identity changes — name, category, website domain, address changes
-  • Recency          — staleness flags, log_days, recency_bucket, PCA
+  • Recency          — staleness flags, log_days, recency_bucket
+    (recency is computed per release pair against that pair's own
+     release_date_current, not a single global reference date)
   • Interactions     — zombie_score, decay_velocity, brand×stale, etc.
 
 Multi-release trajectory features (automatically activated when 3+ releases):
@@ -25,12 +29,11 @@ Multi-release trajectory features (automatically activated when 3+ releases):
   • social_trend         — slope of social-count across all windows (linear regression)
   • website_trend        — slope of website-count across all windows
 
-Why these matter
-----------------
-In a 2-release dataset, churned (closed) places all have delta=0 by construction
-(COALESCE makes current = previous for disappeared places). With 3+ releases,
-we can see the place's behaviour *before* disappearance — these trajectory
-features are the true leading closure indicators.
+Note on recency_pca
+-------------------
+recency_pca is computed in step3_train.py AFTER the train/test split so that
+PCA is fit only on training rows. days_latest and days_avg are passed through
+in the output parquet as passthrough columns (not model features) for this purpose.
 
 Output
 ------
@@ -55,7 +58,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from sklearn.decomposition import PCA
 
 warnings.filterwarnings("ignore")
 
@@ -142,9 +144,11 @@ def _email_count(x):
 
 
 def _congruence(row):
-    """1 if website domain appears in any social URL."""
-    w = _parse(row["websites"])
-    s = _parse(row["socials"])
+    """1 if website domain appears in any social URL.
+    Uses BASE snapshots so the measurement window is consistent for all places.
+    """
+    w = _parse(row["base_websites"])
+    s = _parse(row["base_socials"])
     if not w or not s or not isinstance(w, list) or not isinstance(s, list):
         return 0
     domain = (
@@ -184,10 +188,10 @@ def _compute_trajectory_features(df: pd.DataFrame) -> pd.DataFrame:
     # Sort to ensure chronological order within each place
     df = df.sort_values(["id", "release_index"]).copy()
 
-    # Build a pivot of social/website counts per (id, release_index)
-    # For open places, current counts come from the current snapshot.
-    # For churned closed places, current snapshot equals base (COALESCE),
-    # so we use base counts as the "pre-closure" reading.
+    # Build a pivot of social/website counts per (id, release_index).
+    # Using base counts (available for all places including churned ones).
+    # _has_any_loss compares COALESCED current vs base to detect per-window change;
+    # for churned places curr==base (COALESCE), so _has_any_loss=0 by design.
     df["_n_social_curr"] = df["socials"].apply(_len)
     df["_n_web_curr"]    = df["websites"].apply(_len)
     df["_n_social_base"] = df["base_socials"].apply(_len)
@@ -289,8 +293,11 @@ def build_features(
     input_path      : path to 01_training_data_raw.parquet
     output_path     : where to write 02_features.parquet
     reference_date  : the "current" date used for staleness calculations.
-                      Defaults to the date embedded in the newest release tag,
-                      or today if it cannot be inferred.
+                      • None (default, training mode): each row uses its own
+                        release_date_current as the reference, so staleness is
+                        measured at the correct prediction horizon for every pair.
+                      • Supplied (inference mode): all rows use this single date,
+                        representing "today" at inference time.
 
     Returns
     -------
@@ -303,17 +310,6 @@ def build_features(
     df = pd.read_parquet(input_path)
     print(f"\n  Loaded {len(df):,} rows | {df.shape[1]} columns")
     print(f"  Release pairs present: {sorted(df['release_pair'].unique())}")
-
-    # ── Infer reference date ─────────────────────────────────────────────────
-    if reference_date is None:
-        # Use the most recent release_date_current in the data
-        try:
-            latest_tag = df["release_date_current"].max()  # e.g. "2026-02-18.0"
-            reference_date = datetime.strptime(latest_tag.split(".")[0], "%Y-%m-%d")
-            print(f"  Reference date (inferred from releases): {reference_date.date()}")
-        except Exception:
-            reference_date = datetime.today()
-            print(f"  Reference date (fallback to today): {reference_date.date()}")
 
     n_pairs = df["release_pair"].nunique()
     has_trajectory = n_pairs >= 2  # Need 3+ releases → 2+ pairs
@@ -332,38 +328,63 @@ def build_features(
 
     # ── 1. SOURCES / RECENCY ─────────────────────────────────────────────────
     print("\n  sources & recency …")
-    df["num_sources"]      = df["sources"].apply(_len)
-    df["base_num_sources"] = df["base_sources"].apply(_len)
-    df["delta_sources"]    = df["num_sources"] - df["base_num_sources"]
+
+    # Use base_sources for ALL source-count features so both open and closed
+    # places are measured from the same pre-window snapshot (R_i).
+    df["num_sources"]      = df["base_sources"].apply(_len)
+    df["base_num_sources"] = df["base_sources"].apply(_len)    # same reference
+    # delta_sources uses COALESCED sources (curr or base) vs base — the only
+    # valid delta signal for open places; legitimately 0 for churned places.
+    df["delta_sources"]    = df["sources"].apply(_len) - df["num_sources"]
     df["has_lost_sources"] = (df["delta_sources"] < 0).astype(int)
-    df["source_list"]      = df["sources"].apply(_source_names)
+    df["source_list"]      = df["base_sources"].apply(_source_names)
     df["source_has_msft"]  = df["source_list"].apply(
         lambda x: 1 if any(s in x for s in ("microsoft", "msft")) else 0
     )
     df["is_cross_verified"] = (df["num_sources"] > 1).astype(int)
     df["log_num_sources"]   = np.log1p(df["num_sources"])
 
-    # Use base_sources (not COALESCED sources) so staleness measures the last-known
-    # state before the prediction window — identical for both open and closed places.
-    rec = df["base_sources"].apply(lambda x: _recency(x, reference_date))
+    # Recency — use base_sources (pre-window snapshot) for all places.
+    # FIX: compute staleness against each pair's own release_date_current
+    # rather than a single global reference date.  This prevents pair-0 rows
+    # from appearing ~28 days older than pair-1 rows with the same update date.
+    if reference_date is not None:
+        # Inference mode: caller supplies a single explicit reference date.
+        print(f"  Reference date (supplied): {reference_date.date()}")
+        rec = df["base_sources"].apply(lambda x: _recency(x, reference_date))
+    else:
+        # Training mode: use each row's own release_date_current as reference.
+        rec_parts = []
+        ref_dates_used = {}
+        for rel_tag, grp in df.groupby("release_date_current", sort=False):
+            ref = datetime.strptime(rel_tag.split(".")[0], "%Y-%m-%d")
+            ref_dates_used[rel_tag] = ref.date()
+            rec_parts.append(grp["base_sources"].apply(lambda x: _recency(x, ref)))
+        rec = pd.concat(rec_parts).reindex(df.index)
+        print(f"  Reference dates used per pair: {ref_dates_used}")
+
     df["days_latest"] = rec.apply(lambda x: x[0])
     df["days_oldest"] = rec.apply(lambda x: x[1])
     df["days_avg"]    = rec.apply(lambda x: x[2])
 
     # ── 2. DIGITAL PRESENCE ──────────────────────────────────────────────────
+    # FIX: use base_* columns for all presence features so open and closed
+    # places are measured at the same pre-window point in time (R_i).
+    # Delta features (below) still compare COALESCED curr vs base to capture
+    # real changes for open places (legitimately 0 for churned places).
     print("  digital presence …")
-    df["num_websites"] = df["websites"].apply(_len)
-    df["num_socials"]  = df["socials"].apply(_len)
-    df["num_phones"]   = df["phones"].apply(_len)
+    df["num_websites"] = df["base_websites"].apply(_len)
+    df["num_socials"]  = df["base_socials"].apply(_len)
+    df["num_phones"]   = df["base_phones"].apply(_len)
     df["has_website"]  = (df["num_websites"] > 0).astype(int)
     df["has_social"]   = (df["num_socials"]  > 0).astype(int)
     df["has_phone"]    = (df["num_phones"]   > 0).astype(int)
 
-    df["has_facebook"]  = df["socials"].apply(lambda x: _has_platform(x, "facebook.com"))
-    df["has_instagram"] = df["socials"].apply(lambda x: _has_platform(x, "instagram.com"))
-    df["has_yelp"]      = df["socials"].apply(lambda x: _has_platform(x, "yelp.com"))
+    df["has_facebook"]  = df["base_socials"].apply(lambda x: _has_platform(x, "facebook.com"))
+    df["has_instagram"] = df["base_socials"].apply(lambda x: _has_platform(x, "instagram.com"))
+    df["has_yelp"]      = df["base_socials"].apply(lambda x: _has_platform(x, "yelp.com"))
 
-    df["num_emails"]   = df["emails"].apply(_email_count)
+    df["num_emails"]    = df["base_emails"].apply(_email_count)
     df["contact_depth"] = df["num_websites"] + df["num_socials"] + df["num_emails"]
     df["total_digital"] = (
         df["has_website"] + df["has_social"] + df["has_phone"] +
@@ -371,7 +392,8 @@ def build_features(
     )
 
     # ── 3. BRAND ─────────────────────────────────────────────────────────────
-    df["is_brand"] = df["brand"].apply(
+    # FIX: use base_brand for the same measurement-window reason.
+    df["is_brand"] = df["base_brand"].apply(
         lambda x: 0 if (
             x is None or
             (isinstance(x, float) and np.isnan(x)) or
@@ -387,9 +409,10 @@ def build_features(
 
     # ── 6. DELTA FEATURES ────────────────────────────────────────────────────
     print("  delta features …")
-    # Note: for churned (closed) places in 2-release data, COALESCE makes
-    # current == base, so all deltas are 0 by construction. trajectory features
-    # (pre_closure_loss, social_trend) address this limitation for 3+ releases.
+    # Delta features compare COALESCED curr vs base: for open places this
+    # captures real changes; for churned places COALESCE makes curr==base so
+    # deltas are 0 by construction.  Trajectory features (pre_closure_loss,
+    # social_trend) address this limitation when 3+ releases are available.
     for cur, base in [
         ("websites", "base_websites"),
         ("socials",  "base_socials"),
@@ -397,22 +420,22 @@ def build_features(
     ]:
         df[f"delta_{cur}"] = df[cur].apply(_len) - df[base].apply(_len)
 
-    df["has_lost_website"]  = (df["delta_websites"] < 0).astype(int)
+    df["has_lost_website"]   = (df["delta_websites"] < 0).astype(int)
     df["has_gained_website"] = (df["delta_websites"] > 0).astype(int)
-    df["has_lost_social"]   = (df["delta_socials"]  < 0).astype(int)
-    df["has_gained_social"] = (df["delta_socials"]  > 0).astype(int)
-    df["has_lost_phone"]    = (df["delta_phones"]   < 0).astype(int)
-    df["has_gained_phone"]  = (df["delta_phones"]   > 0).astype(int)
-    df["delta_total"]       = df["delta_websites"] + df["delta_socials"] + df["delta_phones"]
-    df["has_any_loss"]      = (
+    df["has_lost_social"]    = (df["delta_socials"]  < 0).astype(int)
+    df["has_gained_social"]  = (df["delta_socials"]  > 0).astype(int)
+    df["has_lost_phone"]     = (df["delta_phones"]   < 0).astype(int)
+    df["has_gained_phone"]   = (df["delta_phones"]   > 0).astype(int)
+    df["delta_total"]        = df["delta_websites"] + df["delta_socials"] + df["delta_phones"]
+    df["has_any_loss"]       = (
         (df["delta_websites"] < 0) | (df["delta_socials"] < 0) | (df["delta_phones"] < 0)
     ).astype(int)
-    df["has_any_gain"]      = (
+    df["has_any_gain"]       = (
         (df["delta_websites"] > 0) | (df["delta_socials"] > 0) | (df["delta_phones"] > 0)
     ).astype(int)
-    df["num_loss_types"]    = df["has_lost_website"] + df["has_lost_social"] + df["has_lost_phone"]
-    df["num_gain_types"]    = df["has_gained_website"] + df["has_gained_social"] + df["has_gained_phone"]
-    df["has_complete_loss"] = (
+    df["num_loss_types"]     = df["has_lost_website"] + df["has_lost_social"] + df["has_lost_phone"]
+    df["num_gain_types"]     = df["has_gained_website"] + df["has_gained_social"] + df["has_gained_phone"]
+    df["has_complete_loss"]  = (
         (df["delta_websites"] < 0) & (df["delta_socials"] < 0)
     ).astype(int)
     df["contact_loss_severity"] = (
@@ -471,9 +494,10 @@ def build_features(
     ).astype(int)
     df["recency_spread"] = (df["days_oldest"] - df["days_latest"]).clip(lower=0)
 
-    rec_mat = df[["days_latest", "days_avg"]].fillna(9999)
-    pca = PCA(n_components=1)
-    df["recency_pca"] = pca.fit_transform(rec_mat).flatten()
+    # NOTE: recency_pca is intentionally NOT computed here.
+    # PCA must be fit on training rows only and applied to hold-out rows
+    # separately.  This is handled in step3_train.py after the train/test
+    # split.  days_latest and days_avg are passed through as raw columns.
 
     # ── 9. INTERACTION FEATURES ──────────────────────────────────────────────
     print("  interaction features …")
@@ -495,6 +519,7 @@ def build_features(
         df["has_any_loss"] + df["is_stale_1yr"] +
         df["name_changed"] + df["cat_changed"]
     )
+    # FIX: _congruence uses base_websites / base_socials (see function above)
     df["digital_congruence"] = df.apply(_congruence, axis=1)
 
     # Multi-release interaction: pre-closure loss amplified by staleness
@@ -509,7 +534,7 @@ def build_features(
         # Brand & sources
         "is_brand", "num_sources", "log_num_sources",
         "source_has_msft", "is_cross_verified",
-        # Digital presence
+        # Digital presence  (all from base snapshot)
         "has_website", "has_social", "has_phone", "contact_depth",
         "has_facebook", "has_instagram", "has_yelp",
         "total_digital", "num_websites", "num_socials",
@@ -524,8 +549,8 @@ def build_features(
         "has_lost_phone", "has_gained_phone",
         "has_complete_loss", "num_loss_types", "num_gain_types",
         "contact_loss_severity",
-        # Recency
-        "recency_pca", "log_days", "is_stale_3mo", "is_stale_6mo",
+        # Recency  (recency_pca is added in step3 after the split)
+        "log_days", "is_stale_3mo", "is_stale_6mo",
         "is_stale_1yr", "is_stale_2yr", "recency_bucket", "recency_spread",
         # Interactions
         "zombie_score", "decay_velocity",
@@ -549,11 +574,14 @@ def build_features(
     # Only keep features that were actually computed
     numeric_features = [f for f in numeric_features if f in df.columns]
 
-    # Passthrough columns: category_primary (CatBoost native cat encoding),
-    # metadata for hold-out splitting and inspection
+    # Passthrough columns:
+    #   • category_primary  — CatBoost native categorical encoding (fold-safe)
+    #   • days_latest, days_avg — raw inputs for PCA fitted in step3 (after split)
+    #   • metadata columns  — for hold-out splitting and inspection
     keep_cols = (
         numeric_features +
-        ["category_primary", "city", "release_pair", "release_date_base",
+        ["days_latest", "days_avg",          # ← PCA passthrough, NOT model features
+         "category_primary", "city", "release_pair", "release_date_base",
          "release_date_current", "release_index", "label"]
     )
     keep_cols = [c for c in keep_cols if c in df.columns]
@@ -568,10 +596,15 @@ def build_features(
         if col in final.columns and final[col].isna().any():
             final[col] = final[col].fillna(0)
 
+    # Also fill passthrough cols used for PCA
+    for col in ["days_latest", "days_avg"]:
+        if col in final.columns:
+            final[col] = final[col].fillna(9999)
+
     final["category_primary"] = final["category_primary"].astype(str)
 
     print(f"\n  Shape:             {final.shape}")
-    print(f"  Numeric features:  {len(numeric_features)}")
+    print(f"  Numeric features:  {len(numeric_features)}  (+ recency_pca added in step3)")
     print(f"  Open rate:         {final['open'].mean():.1%}")
     print(f"  Trajectory feats:  {'activated ✓' if has_trajectory else 'minimal (need 3+ releases)'}")
 
