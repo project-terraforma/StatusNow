@@ -137,6 +137,7 @@ def main():
         ("2026-01-21.0", "local", "previous"),
         ("2026-02-18.0", "local", "current"),
         ("2026-03-18.0", "s3",    None),
+        ("2026-04-15.0", "s3",    None),
     ]
 
     if args.only_release:

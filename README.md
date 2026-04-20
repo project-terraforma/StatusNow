@@ -4,31 +4,67 @@ Classifies whether a POI is **Open** or **Closed** based on its digital footprin
 
 ---
 
-## Latest Model Results (V8 — Chicago + Miami Hold-out)
+## How It Works
 
-| Metric | Open | Closed |
-|---|---|---|
-| **Balanced Accuracy** | **89.29%** | |
-| **AUC** | **95.30%** | |
-| Precision | 99.2% | 75.9% |
-| Recall | 79.5% | 99.0% |
+StatusNow ingests consecutive monthly Overture Maps releases and trains a binary classifier to predict whether a place of interest is still open.
 
-_Evaluated on 46,907 hold-out rows (Chicago + Miami, never seen during training). Threshold = 0.50. Ensemble: CatBoost-A × 0.7 + LightGBM-A × 0.3._
+**1. Closure labels from time series**
+A place is labeled **Closed** (High-Quality Closed / HQC) if it appeared in two consecutive releases and then vanished from the next — a confirmed churner with trajectory history. A place is labeled **Open** if it appears in the latest release. With 4 monthly releases (Jan → Feb → Mar → Apr 2026) the pipeline builds 3 comparison windows, yielding 193,976 high-quality closed examples.
 
-**Top Features (CatBoost-A):**
+**2. Feature engineering (65+ features, leak-free)**
+Features are computed from the *base* snapshot (R_i) so no future data leaks into training:
+- **Recency / staleness** — days since last source update, staleness buckets, zombie score (sources ÷ avg staleness)
+- **Digital presence** — website, social, phone counts from the base snapshot
+- **Delta signals** — what changed between R_i and R_{i+1}: lost socials, gained website, identity changes (name / category / address)
+- **Trajectory features** (3+ releases) — `consecutive_present`, `releases_seen`, `pre_closure_loss`, `social_trend`
+
+**3. Ensemble model**
+Four models trained on 421K rows with 5-fold OOF cross-validation: CatBoost-A/B/C + LightGBM-A. Ensemble weights and classification threshold are chosen on OOF predictions only — the hold-out (Chicago + Miami) is never touched until final evaluation.
+
+---
+
+## Latest Model Results (V9 — Chicago + Miami Hold-out)
+
+| Metric | Value |
+|---|---|
+| **Balanced Accuracy** | **85.90%** |
+| **OOF AUC** | **93.40%** |
+| Ensemble | CatBoost-A × 0.8 + LightGBM-A × 0.2 |
+| Threshold | 0.51 |
+
+_Evaluated on 63,754 hold-out rows (Chicago + Miami, never seen during training). Trained on 4 monthly releases: Jan → Feb → Mar → Apr 2026._
+
+| Model | Hold-out Balanced Acc |
+|---|---|
+| CatBoost-B | 85.96% |
+| CatBoost-C | 85.93% |
+| CatBoost-A | 85.92% |
+| CB+LGBM ensemble | 85.90% |
+| LightGBM-A | 85.83% |
+
+**Top Features (CatBoost-A, V9):**
 
 | Rank | Feature | Importance | Description |
 |---|---|---|---|
-| 1 | `recency_spread` | 29.8% | Range between oldest and newest source update timestamps |
-| 2 | `recency_pca` | 21.8% | PCA of recency metrics (fit on training rows only) |
-| 3 | `zombie_score` | 19.7% | Source count / avg staleness — "database purgatory" signal |
-| 4 | `identity_change_score` | 12.8% | Sum of name, category, and address changes |
-| 5 | `is_brand` | 2.6% | Place matches a known brand chain |
-| 6 | `total_digital` | 2.3% | Count of distinct digital presence types |
-| 7 | `category_primary` | 2.2% | Business category (CatBoost native encoding) |
-| 8 | `consecutive_present` | 1.6% | Longest consecutive run of release appearances |
-| 9 | `has_phone` | 1.6% | Phone number present in base snapshot |
-| 10 | `releases_seen` | 1.4% | Number of releases this place appeared in before closure |
+| 1 | `recency_spread` | 29.4% | Range between oldest and newest source update timestamps |
+| 2 | `zombie_score` | 16.2% | Source count / avg staleness — "database purgatory" signal |
+| 3 | `identity_change_score` | 15.7% | Sum of name, category, and address changes |
+| 4 | `recency_pca` | 11.7% | PCA of recency metrics (fit on training rows only) |
+| 5 | `log_days` | 7.4% | Log of days since most recent source update |
+| 6 | `source_has_msft` | 3.4% | Microsoft / Bing as a data source |
+| 7 | `has_phone` | 3.2% | Phone number present in base snapshot |
+| 8 | `is_brand` | 2.8% | Place matches a known brand chain |
+| 9 | `category_primary` | 1.6% | Business category (CatBoost native encoding) |
+| 10 | `has_facebook` | 1.3% | Facebook social link present |
+
+**V8 → V9 comparison:**
+
+| Version | Releases | HQC Closed | Hold-out Rows | Balanced Acc |
+|---|---|---|---|---|
+| V8 | Jan, Feb, Mar (3) | 142,931 | 46,907 | **89.29%** |
+| V9 | Jan, Feb, Mar, Apr (4) | 193,976 | 63,754 | **85.90%** |
+
+_V9 adds April as a closure oracle and a third training pair (Mar→Apr). The −3.4 pp drop likely reflects distribution shift: Pair 2 contributes only 51K HQC closed (vs 142K in Pair 1), and April churners may have different characteristics than the Feb/Mar cohort._
 
 ---
 
@@ -93,7 +129,7 @@ python pipeline/run_pipeline.py \
   --cv-folds 5
 ```
 
-With 3+ releases the pipeline activates trajectory features (`pre_closure_loss`, `social_trend`, `releases_seen`, `consecutive_present`) that capture pre-closure behaviour — directly addressing the 2-release limitation where all delta features are 0 for churned places by construction.
+With 4 releases (Jan → Feb → Mar → Apr 2026) the pipeline creates 3 comparison pairs and activates trajectory features (`pre_closure_loss`, `social_trend`, `releases_seen`, `consecutive_present`) that capture pre-closure behaviour — directly addressing the 2-release limitation where all delta features are 0 for churned places by construction.
 
 See [`pipeline/README.md`](pipeline/README.md) for the full guide.
 
@@ -263,7 +299,20 @@ This section chronicles our progress from the initial baseline to the current pi
 
 ---
 
-### Phase 9: V8 — HQC Labels + Remaining Leak Fixes (Mar 2026, Current)
+### Phase 11: V9 — April 2026 Release + 4-Release Time Series (Apr 2026, Current)
+
+- **Goal**: Extend the pipeline to 4 consecutive monthly releases, using April as the closure oracle and Jan–Mar as the training window. This gives genuine 3-month trajectory data for every closed place.
+- **New release**: `2026-04-15.0` fetched from Overture S3 for all 12 cities (1,708,170 rows). Placed in `overture_releases/` alongside Jan, Feb, and Mar.
+- **Pipeline now creates 3 comparison pairs**:
+  - Pair 0 (Jan→Feb): open rows only (no prior history for HQC)
+  - Pair 1 (Feb→Mar): 142,931 HQC closed + open
+  - Pair 2 (Mar→Apr): 51,045 HQC closed + open ← April used as closure signal
+- **Dataset**: 484,940 rows after 60/40 global rebalancing (193,976 closed, 290,964 open). Train: 421,186 / Hold-out: 63,754 (Chicago + Miami).
+- **Results**: CB+LGBM ensemble hold-out **85.90%** balanced accuracy (OOF AUC 93.40%). Individual models cluster tightly at 85.83–85.96%. Top features remain `recency_spread`, `zombie_score`, and `identity_change_score` — `recency_pca` dropped from rank 2 to rank 4 as the staleness interaction features gained relative weight with the longer time window. The −3.4 pp drop vs V8 is consistent with distribution shift: the Mar→Apr pair contributes only 51K HQC closed vs 142K from Feb→Mar, and April churners may behave differently than the prior cohort.
+
+---
+
+### Phase 9: V8 — HQC Labels + Remaining Leak Fixes (Mar 2026)
 
 - **Goal**: Tighten the closed label definition, fix remaining leaks found in a full audit, and improve dataset balance.
 - **HQC Closed Labels**: Redefined closed as places present in **2 consecutive past releases and absent in the next** — confirmed churners with trajectory history. This yields 142,931 high-quality closed examples vs. the old 3,000/pair cap that discarded 97% of available signal. Dataset rebalanced globally to 60/40 (357k rows total).
